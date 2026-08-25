@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -92,6 +93,62 @@ def test_load_profile_defaults_to_software_when_unset() -> None:
     check(gpu.load_profile() is gpu.PRESETS[0], "should default to the software baseline")
 
 
+def test_run_glmark2_reports_when_glmark2_missing_and_pkg_unavailable() -> None:
+    # Real, unmocked behavior on this dev machine: no glmark2, no pkg.
+    # This is the exact bug reported live — "no candidate preset
+    # produced a score" with zero explanation — now must explain why.
+    messages: list[str] = []
+    score = gpu.run_glmark2(gpu.PRESETS[0], log=messages.append)
+    check(score is None, "must fail gracefully with no glmark2/pkg present")
+    check(
+        any("glmark2" in m for m in messages),
+        f"expected a reason logged, got {messages!r}",
+    )
+
+
+def test_ensure_binary_delegates_to_native_packages_with_mapped_name() -> None:
+    # gpu.py no longer implements its own install logic — it delegates to
+    # native.packages.ensure_binary() (shared across every module with the
+    # same "silently degrades if a binary is missing" shape), passing the
+    # preset-specific binary->package mapping through.
+    calls = []
+    with mock.patch.object(
+        gpu.native_packages,
+        "ensure_binary",
+        side_effect=lambda binary, package, log, attempted: calls.append((binary, package)) or True,
+    ):
+        ok = gpu._ensure_binary("virgl_test_server_android", None)
+    check(ok is True, "must return whatever native_packages.ensure_binary reports")
+    check(
+        calls == [("virgl_test_server_android", "virglrenderer-android")],
+        f"expected the mapped package name passed through, got {calls!r}",
+    )
+
+
+def test_run_glmark2_checks_termux_x11_is_running() -> None:
+    # glmark2 "available" (mocked at the delegation boundary) but
+    # termux-x11's socket doesn't exist on this dev machine — must refuse
+    # with a clear reason, not attempt to launch glmark2 with no display.
+    messages: list[str] = []
+    with mock.patch.object(gpu.native_packages, "ensure_binary", return_value=True):
+        score = gpu.run_glmark2(gpu.PRESETS[0], log=messages.append)
+    check(score is None, "must not run without an active termux-x11 display")
+    check(
+        any("termux-x11 is not running" in m for m in messages),
+        f"expected the display-not-running reason logged, got {messages!r}",
+    )
+
+
+def test_bench_reports_no_candidate_summary() -> None:
+    messages: list[str] = []
+    result = gpu.bench(log=messages.append)
+    check(result is None, "cannot actually benchmark without real glmark2/pkg")
+    check(
+        any("No candidate preset produced a score" in m for m in messages),
+        f"expected the summary line, got {messages!r}",
+    )
+
+
 TESTS = [
     test_presets_are_coherent,
     test_adreno_only_presets_are_flagged,
@@ -100,6 +157,10 @@ TESTS = [
     test_candidates_includes_adreno_only_on_adreno,
     test_profile_round_trip,
     test_load_profile_defaults_to_software_when_unset,
+    test_run_glmark2_reports_when_glmark2_missing_and_pkg_unavailable,
+    test_ensure_binary_delegates_to_native_packages_with_mapped_name,
+    test_run_glmark2_checks_termux_x11_is_running,
+    test_bench_reports_no_candidate_summary,
 ]
 
 if __name__ == "__main__":

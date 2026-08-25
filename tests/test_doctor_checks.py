@@ -112,8 +112,14 @@ def test_check_wakelock_binary_reports_a_definite_bool() -> None:
     # not a specific environment's state.
     issue = checks.check_wakelock_binary()
     check(isinstance(issue.ok, bool), "ok must be a definite bool")
-    check(issue.fix is None, "a missing binary isn't something Doctor can install by itself")
-    if not issue.ok:
+    if issue.ok:
+        check(issue.fix is None, "an already-ok check should offer no fix")
+    else:
+        # 2026-08-26: Doctor's Fix button could do nothing about this
+        # before — now it attempts to reinstall termux-tools (a rare
+        # edge case in practice, since this ships in Termux's own
+        # bootstrap, but Doctor should still try rather than shrug).
+        check(issue.fix is not None, "a missing binary should now have a real fix")
         check(issue.detail, "a failing check should explain why")
 
 
@@ -121,6 +127,21 @@ def test_check_termux_x11_installed_reports_not_ok_when_absent() -> None:
     issue = checks.check_termux_x11_installed()
     check(issue.ok is False, "termux-x11 isn't installed here")
     check(not issue.unknown, "an absent package is a definite not-ok, not an unknown")
+    check(issue.fix is not None, "a missing termux-x11 should now have a real fix")
+
+
+def test_check_termux_x11_installed_fix_installs_the_nightly_package() -> None:
+    from unittest import mock
+
+    calls = []
+    with mock.patch(
+        "app.doctor.checks.native_packages.ensure_binary",
+        side_effect=lambda binary, package, log=None: calls.append((binary, package)) or True,
+    ):
+        issue = checks.check_termux_x11_installed()
+        result = issue.fix(lambda msg: None)
+    check(result is True, "fix should report the mocked install as successful")
+    check(calls == [("termux-x11", "termux-x11-nightly")], f"got {calls!r}")
 
 
 def test_check_termux_x11_app_reports_a_definite_bool() -> None:
@@ -231,6 +252,7 @@ TESTS = [
     test_check_audio_is_a_read_only_probe_when_enabled,
     test_check_wakelock_binary_reports_a_definite_bool,
     test_check_termux_x11_installed_reports_not_ok_when_absent,
+    test_check_termux_x11_installed_fix_installs_the_nightly_package,
     test_check_termux_x11_app_reports_a_definite_bool,
     test_check_internet_reports_connected_on_this_dev_machine,
     test_check_storage_reports_a_definite_bool,

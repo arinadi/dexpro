@@ -29,6 +29,22 @@ def test_ensure_server_never_raises() -> None:
     check(isinstance(result, bool), "ensure_server() must return a bool, never raise")
 
 
+def test_ensure_server_delegates_install_to_native_packages() -> None:
+    # 2026-08-26: ensure_server() used to just warn "pulseaudio not
+    # installed" and give up — same shape of bug as GPU Bench's missing
+    # glmark2. Now it asks native.packages.ensure_binary() to install it.
+    from unittest import mock
+
+    calls = []
+    with mock.patch(
+        "app.native.audio.native_packages.ensure_binary",
+        side_effect=lambda binary, package, log=None: calls.append((binary, package)) or False,
+    ):
+        result = audio.ensure_server(log=lambda msg: None)
+    check(result is False, "must still fail gracefully when the mocked install reports failure")
+    check(calls == [("pulseaudio", "pulseaudio")], f"got {calls!r}")
+
+
 def _isolated_config(test):
     def wrapper():
         original = const.CONFIG_FILE
@@ -113,6 +129,7 @@ def test_test_never_raises_when_enabled_but_no_real_audio() -> None:
 TESTS = [
     test_is_running_returns_a_bool,
     test_ensure_server_never_raises,
+    test_ensure_server_delegates_install_to_native_packages,
     test_is_enabled_defaults_to_off,
     test_set_enabled_round_trips,
     test_sinks_returns_empty_list_when_pactl_missing,

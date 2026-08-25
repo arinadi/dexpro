@@ -12,6 +12,27 @@ output parsing (``glmark2 Score: N``) are based on glmark2's general
 documented usage, not verified against actual on-device output — treat
 as a spike to confirm on the real device or in the Docker dev container,
 per build-task-phase1.md's spike list.
+
+2026-08-26: a real device report of "no candidate preset produced a
+score" with no other detail turned up three actual gaps, found by
+diffing against XLabs' installer/bench.py (which runs the same benchmark
+inside a proot container rather than natively, but hits the same
+X-display and missing-binary requirements): (1) glmark2 was never
+installed anywhere in this codebase — every run silently hit "binary
+missing" and returned None with zero explanation; (2) unlike XLabs'
+explicit ``export DISPLAY=:0`` before invoking glmark2, run_glmark2()
+only ever inherited whatever DISPLAY happened to already be in the
+process environment — now explicitly set to x11.DISPLAY (":1" here,
+XLabs' container uses ":0"); (3) XLabs checks termux-x11 is actually
+running before benchmarking at all ("glmark2 renders off-screen but
+still needs an X display for its context") — run_glmark2() had no such
+guard. All three fixed, plus every failure path (missing binary,
+termux-x11 down, timeout, nonzero exit with no score match) now logs why
+instead of silently returning None. Missing binaries (glmark2 itself,
+and virgl_test_server_android for the virgl preset) are now installed
+on demand via ``pkg install -y <package>`` rather than assumed present —
+_ensure_binary() always re-checks with shutil.which afterward rather
+than trusting the install command's exit code alone.
 """
 
 from __future__ import annotations
@@ -24,6 +45,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from .. import config
+from . import packages as native_packages
+from . import x11
 
 Log = Callable[[str], None]
 
@@ -120,13 +143,19 @@ def _getprop(prop: str) -> str | None:
         return None
 
 
-def candidates(vendor: str | None = None) -> list[Preset]:
+def _presets_for_vendor(vendor: str | None = None) -> list[Preset]:
     if vendor is None:
         vendor = detect_vendor()
+    return [p for p in PRESETS if not (p.adreno_only and vendor != "adreno")]
+
+
+def candidates(vendor: str | None = None) -> list[Preset]:
+    """Presets viable right now without installing anything — a pure,
+    no-side-effect query. bench() itself uses _presets_for_vendor() and
+    _ensure_binary() instead, so a missing `requires` binary gets an
+    install attempt rather than a silent skip."""
     result = []
-    for preset in PRESETS:
-        if preset.adreno_only and vendor != "adreno":
-            continue
+    for preset in _presets_for_vendor(vendor):
         if preset.requires and any(shutil.which(binary) is None for binary in preset.requires):
             continue
         result.append(preset)
@@ -137,19 +166,50 @@ def candidates(vendor: str | None = None) -> list[Preset]:
 
 _SCORE_RE = re.compile(r"glmark2 Score:\s*(\d+)")
 
+# Termux package that provides each binary a preset depends on — needed
+# because the binary name and the pkg name aren't always the same
+# (virgl_test_server_android ships in the virglrenderer-android package).
+_BINARY_PACKAGES: dict[str, str] = {
+    "glmark2": "glmark2",
+    "virgl_test_server_android": "virglrenderer-android",
+}
 
-def run_glmark2(preset: Preset) -> int | None:
+
+def _ensure_binary(binary: str, log: Log | None, _attempted: set[str] | None = None) -> bool:
+    return native_packages.ensure_binary(
+        binary, _BINARY_PACKAGES.get(binary, binary), log, _attempted
+    )
+
+
+def run_glmark2(
+    preset: Preset, log: Log | None = None, _attempted: set[str] | None = None
+) -> int | None:
     """Runs glmark2 with the preset's env, returns the score, or None if
-    it couldn't run (glmark2 missing, or the run failed/timed out)."""
-    if shutil.which("glmark2") is None:
+    it couldn't run — every failure path logs why (missing binary,
+    termux-x11 not running, timeout, or a nonzero exit with no score in
+    its output), instead of a bare None that reads as "nothing happened."
+    """
+    if not _ensure_binary("glmark2", log, _attempted):
+        return None
+
+    if not os.path.exists(x11.socket_path()):
+        if log:
+            log(
+                "termux-x11 is not running — glmark2 renders off-screen but "
+                "still needs an active X display. Start Desktop first, then "
+                "bench again."
+            )
         return None
 
     env = dict(os.environ)
+    env["DISPLAY"] = x11.DISPLAY
     env.update(preset.env)
-    args = ["glmark2"]
+    args = ["glmark2", "--off-screen"]
     for scene in GLMARK2_SCENES:
         args += ["-b", f"{scene}:duration={GLMARK2_SECONDS_PER_SCENE}"]
 
+    if log:
+        log("$ " + " ".join(args))
     try:
         result = subprocess.run(
             args,
@@ -159,21 +219,43 @@ def run_glmark2(preset: Preset) -> int | None:
             text=True,
         )
     except subprocess.TimeoutExpired:
+        if log:
+            log(f"{preset.name}: timed out")
         return None
+
     match = _SCORE_RE.search(result.stdout)
-    return int(match.group(1)) if match else None
+    if match:
+        return int(match.group(1))
+
+    if log:
+        log(f"{preset.name}: no score (exit {result.returncode})")
+        tail = (result.stdout + result.stderr).strip().splitlines()[-5:]
+        for line in tail:
+            log(f"    {line}")
+    return None
 
 
 def bench(log: Log | None = None) -> tuple[Preset, int] | None:
     best: tuple[Preset, int] | None = None
-    for preset in candidates():
+    attempted: set[str] = set()
+    for preset in _presets_for_vendor():
+        if preset.requires and not all(
+            _ensure_binary(b, log, attempted) for b in preset.requires
+        ):
+            if log:
+                log(f"{preset.name}: skipped — required binary unavailable")
+            continue
         if log:
             log(f"benchmarking {preset.name}...")
-        score = run_glmark2(preset)
+        score = run_glmark2(preset, log, attempted)
         if score is None:
             continue
+        if log:
+            log(f"{preset.name}: score {score}")
         if best is None or score > best[1]:
             best = (preset, score)
+    if best is None and log:
+        log("No candidate preset produced a score — see the log above for why.")
     return best
 
 

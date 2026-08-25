@@ -8,6 +8,7 @@ repo enable) applied to the Termux side rather than a single container.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from collections.abc import Callable
 
@@ -114,6 +115,40 @@ def install(names: list[str], log: Log | None = None) -> bool:
     return _run(["pkg", "install", "-y", *names], timeout=300, log=log)
 
 
+def ensure_binary(
+    binary: str,
+    package: str | None = None,
+    log: Log | None = None,
+    attempted: set[str] | None = None,
+) -> bool:
+    """True if `binary` is on PATH, installing `package` (defaults to
+    `binary`'s own name) via `install()` first if it's missing. Always
+    re-checks with shutil.which afterward — never assumes install()
+    succeeding means the binary actually landed on PATH.
+
+    2026-08-26: extracted from a one-off version written for GPU Bench
+    (which reported "no candidate produced a score" with zero explanation
+    — the real cause was glmark2 never being installed anywhere) so every
+    other native-side feature with the same "silently degrades if some
+    binary is missing" shape can call the same, single, tested path
+    instead of copy-pasting it.
+
+    `attempted` (optional — a caller doing several of these in one run,
+    e.g. gpu.bench() across its candidate presets, passes the same set
+    through all of them) stops a genuinely failing install from being
+    retried, and re-timed-out, once per caller.
+    """
+    if shutil.which(binary) is not None:
+        return True
+    if attempted is not None:
+        if binary in attempted:
+            return False
+        attempted.add(binary)
+    if not install([package or binary], log=log):
+        return False
+    return shutil.which(binary) is not None
+
+
 def uninstall(names: list[str], log: Log | None = None) -> bool:
     unsafe = [p for p in names if not is_safe_term(p)]
     if unsafe:
@@ -150,6 +185,7 @@ __all__ = [
     "SAFE_TERM",
     "enable_repo",
     "enabled_repos",
+    "ensure_binary",
     "install",
     "is_safe_term",
     "search",

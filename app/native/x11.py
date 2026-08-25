@@ -8,13 +8,13 @@ form's own readiness — poll an actual socket connect first (XLabs'
 from __future__ import annotations
 
 import os
-import shutil
 import socket
 import subprocess
 import time
 from collections.abc import Callable
 
 from .. import const
+from . import packages as native_packages
 
 Log = Callable[[str], None]
 
@@ -42,9 +42,9 @@ def socket_path() -> str:
 
 
 def start(log: Log | None = None, extra_flags: list[str] | None = None) -> subprocess.Popen | None:
-    if shutil.which("termux-x11") is None:
+    if not native_packages.ensure_binary("termux-x11", "termux-x11-nightly", log):
         if log:
-            log("error: termux-x11 not installed")
+            log("error: termux-x11 not available")
         return None
     cmd = ["termux-x11", DISPLAY, *(extra_flags or [])]
     try:

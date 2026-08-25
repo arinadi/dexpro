@@ -36,12 +36,31 @@ def test_wait_for_socket_times_out_when_absent() -> None:
 
 
 def test_start_fails_gracefully_when_binary_missing() -> None:
-    # termux-x11 doesn't exist on this dev machine — start() must return
-    # None and log, never raise.
+    # termux-x11 doesn't exist on this dev machine, and neither does pkg
+    # — start() now attempts to auto-install it (2026-08-26, same fix
+    # class as GPU Bench's missing glmark2) before giving up, but must
+    # still return None and log, never raise.
     messages: list[str] = []
     proc = x11.start(log=messages.append)
-    if proc is None:
-        check(any("not installed" in m for m in messages), "no warning logged on missing binary")
+    check(proc is None, "must not return a process when termux-x11 is unavailable")
+    check(any("termux-x11" in m for m in messages), f"no reason logged, got {messages!r}")
+
+
+def test_start_delegates_install_to_native_packages() -> None:
+    # 2026-08-26: start() used to just log "termux-x11 not installed" and
+    # give up — same fix class as GPU Bench's missing glmark2 / audio's
+    # missing pulseaudio. Now it asks native.packages.ensure_binary() to
+    # install the correct package (termux-x11-nightly, not "termux-x11").
+    from unittest import mock
+
+    calls = []
+    with mock.patch(
+        "app.native.x11.native_packages.ensure_binary",
+        side_effect=lambda binary, package, log=None: calls.append((binary, package)) or False,
+    ):
+        proc = x11.start(log=lambda msg: None)
+    check(proc is None, "must not attempt to launch when the mocked install reports failure")
+    check(calls == [("termux-x11", "termux-x11-nightly")], f"got {calls!r}")
 
 
 def test_draw_path_flags_maps_each_option() -> None:
@@ -61,6 +80,7 @@ TESTS = [
     test_socket_path_matches_display_number,
     test_wait_for_socket_times_out_when_absent,
     test_start_fails_gracefully_when_binary_missing,
+    test_start_delegates_install_to_native_packages,
     test_draw_path_flags_maps_each_option,
     test_draw_path_flags_unknown_value_is_safe,
 ]

@@ -47,13 +47,13 @@ from __future__ import annotations
 
 import math
 import os
-import shutil
 import struct
 import subprocess
 import wave
 from collections.abc import Callable
 
 from .. import config, const
+from . import packages as native_packages
 
 Log = Callable[[str], None]
 
@@ -93,9 +93,9 @@ def is_running() -> bool:
 def ensure_server(log: Log | None = None) -> bool:
     if is_running():
         return True
-    if shutil.which("pulseaudio") is None:
+    if not native_packages.ensure_binary("pulseaudio", "pulseaudio", log):
         if log:
-            log("warning: pulseaudio not installed — session will run without audio")
+            log("warning: pulseaudio unavailable — session will run without audio")
         return False
     if log:
         log("$ pulseaudio --start --exit-idle-time=-1")
@@ -191,7 +191,7 @@ def test(log: Log) -> bool:
         return False
     log(f"tone: {tone}")
 
-    if shutil.which("paplay") is None:
+    if not native_packages.ensure_binary("paplay", "pulseaudio", log):
         log("[red]paplay not found — cannot test playback.[/red]")
         return False
 

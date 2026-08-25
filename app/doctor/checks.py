@@ -38,6 +38,7 @@ from ..box import manager as box_manager
 from ..box import packages as box_packages
 from ..box import user as box_user
 from ..native import audio, gpu, x11
+from ..native import packages as native_packages
 from . import duplicates, electron
 
 Log = Callable[[str], None]
@@ -108,13 +109,29 @@ def check_audio() -> Issue:
 def check_wakelock_binary() -> Issue:
     present = shutil.which("termux-wake-lock") is not None
     detail = "" if present else "termux-wake-lock not found — session may be doze-throttled"
-    return Issue("Wake-lock", present, detail)
+    if present:
+        return Issue("Wake-lock", present, detail)
+    # termux-wake-lock ships in core termux-tools (wakelock.py's own
+    # docstring confirms this from termux-wake-lock.in's source) — always
+    # present in a working Termux install, so this fix is a rare-edge-case
+    # repair path, not something expected to actually fire often.
+    return Issue(
+        "Wake-lock",
+        present,
+        detail,
+        fix=lambda log: native_packages.ensure_binary("termux-wake-lock", "termux-tools", log),
+    )
 
 
 def check_termux_x11_installed() -> Issue:
     present = shutil.which("termux-x11") is not None
     if not present:
-        return Issue("Termux:X11", False, "termux-x11 package not installed")
+        return Issue(
+            "Termux:X11",
+            False,
+            "termux-x11 package not installed",
+            fix=lambda log: native_packages.ensure_binary("termux-x11", "termux-x11-nightly", log),
+        )
     detail = "installed; signing-variant match (universal/sharedUid, GitHub/F-Droid) not verified"
     return Issue("Termux:X11", True, detail, unknown=True)
 

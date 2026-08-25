@@ -85,6 +85,70 @@ def test_search_uses_apt_cache_not_pkg() -> None:
     check(result == ["neovim - Vim text editor"], f"got {result!r}")
 
 
+def test_ensure_binary_skips_install_when_already_present() -> None:
+    import unittest.mock as mock
+
+    install_calls = []
+
+    def fake_install(*args, **kwargs):
+        install_calls.append(1)
+
+    with mock.patch.object(packages.shutil, "which", return_value="/usr/bin/git"):
+        with mock.patch.object(packages, "install", side_effect=fake_install):
+            ok = packages.ensure_binary("git")
+    check(ok is True, "must report present without touching install()")
+    check(install_calls == [], "must not attempt install when already present")
+
+
+def test_ensure_binary_installs_and_reverifies_with_which() -> None:
+    import unittest.mock as mock
+
+    # Simulate "missing before, present after a successful install" —
+    # ensure_binary must re-check shutil.which itself, not trust
+    # install()'s own return value as proof the binary landed on PATH.
+    which_sequence = iter([None, "/usr/bin/glmark2"])
+    with mock.patch.object(packages.shutil, "which", side_effect=lambda name: next(which_sequence)):
+        with mock.patch.object(packages, "install", return_value=True):
+            ok = packages.ensure_binary("glmark2")
+    check(ok is True, "must report available once shutil.which confirms it post-install")
+
+
+def test_ensure_binary_uses_the_mapped_package_name() -> None:
+    import unittest.mock as mock
+
+    calls = []
+    with mock.patch.object(packages.shutil, "which", return_value=None):
+        with mock.patch.object(
+            packages, "install", side_effect=lambda names, log=None: calls.append(names) or False
+        ):
+            ok = packages.ensure_binary(
+                "virgl_test_server_android", package="virglrenderer-android"
+            )
+    check(ok is False, "install() returning False must propagate as not-available")
+    check(calls == [["virglrenderer-android"]], f"expected the mapped package name, got {calls!r}")
+
+
+def test_ensure_binary_does_not_retry_within_the_same_attempted_set() -> None:
+    import unittest.mock as mock
+
+    calls = []
+    attempted: set[str] = set()
+    with mock.patch.object(packages.shutil, "which", return_value=None):
+        with mock.patch.object(
+            packages, "install", side_effect=lambda names, log=None: calls.append(names) or False
+        ):
+            packages.ensure_binary("glmark2", attempted=attempted)
+            packages.ensure_binary("glmark2", attempted=attempted)
+    check(len(calls) == 1, f"expected exactly one install attempt, got {len(calls)}")
+
+
+def test_ensure_binary_fails_gracefully_with_no_real_pkg() -> None:
+    # Real, unmocked behavior on this dev machine: no such binary and no
+    # real `pkg` to install it with.
+    result = packages.ensure_binary("some-binary-that-does-not-exist-anywhere")
+    check(result is False, "must fail gracefully, never raise")
+
+
 def test_install_logs_the_command_and_success_not_just_failure() -> None:
     # Regression test for a real reported bug: Enable Repo / Install
     # showed a completely empty log window because _run() only ever
@@ -113,6 +177,11 @@ TESTS = [
     test_uninstall_rejects_unsafe_package_name,
     test_search_fails_gracefully_when_apt_cache_missing,
     test_search_uses_apt_cache_not_pkg,
+    test_ensure_binary_skips_install_when_already_present,
+    test_ensure_binary_installs_and_reverifies_with_which,
+    test_ensure_binary_uses_the_mapped_package_name,
+    test_ensure_binary_does_not_retry_within_the_same_attempted_set,
+    test_ensure_binary_fails_gracefully_with_no_real_pkg,
     test_install_logs_the_command_and_success_not_just_failure,
 ]
 
