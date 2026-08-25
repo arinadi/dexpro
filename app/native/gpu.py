@@ -33,6 +33,19 @@ and virgl_test_server_android for the virgl preset) are now installed
 on demand via ``pkg install -y <package>`` rather than assumed present —
 _ensure_binary() always re-checks with shutil.which afterward rather
 than trusting the install command's exit code alone.
+
+2026-08-26 (later same day): the fixes above got glmark2 actually
+installed and running for real, but every preset then failed with
+"Error: main: Could not initialize canvas" — this update's own
+``--off-screen`` flag (copied from XLabs' bench.py, which runs inside a
+full proot-distro Debian/Mesa install) was the cause. Community reports
+against termux-x11 specifically (termux/termux-packages#16763; a working
+Adreno/Mali run posted there) confirm the actual working invocation is a
+plain *onscreen* window — ``DISPLAY=:1 GALLIUM_DRIVER=virpipe glmark2``,
+no ``--off-screen`` — so it was dropped. termux-x11's Mesa/virgl stack
+apparently doesn't support the off-screen EGL surface path the way a
+full desktop Mesa install does; XLabs' own container is a different
+enough environment that this specific flag didn't carry over correctly.
 """
 
 from __future__ import annotations
@@ -195,16 +208,24 @@ def run_glmark2(
     if not os.path.exists(x11.socket_path()):
         if log:
             log(
-                "termux-x11 is not running — glmark2 renders off-screen but "
-                "still needs an active X display. Start Desktop first, then "
-                "bench again."
+                "termux-x11 is not running — glmark2 needs an active X "
+                "display to open its (onscreen) benchmark window. Start "
+                "Desktop first, then bench again."
             )
         return None
 
     env = dict(os.environ)
     env["DISPLAY"] = x11.DISPLAY
     env.update(preset.env)
-    args = ["glmark2", "--off-screen"]
+    # No --off-screen: a real device run (2026-08-26) failed with "Error:
+    # main: Could not initialize canvas" on every preset with it. Termux
+    # community reports (termux/termux-packages#16763) confirm the working
+    # invocation against termux-x11 is a plain onscreen window — e.g.
+    # ``DISPLAY=:1 GALLIUM_DRIVER=virpipe glmark2`` — not an off-screen EGL
+    # surface, which termux-x11's Mesa/virgl stack apparently doesn't
+    # support the way a full desktop Mesa install (XLabs' proot-distro
+    # container, where --off-screen was ported from) does.
+    args = ["glmark2"]
     for scene in GLMARK2_SCENES:
         args += ["-b", f"{scene}:duration={GLMARK2_SECONDS_PER_SCENE}"]
 

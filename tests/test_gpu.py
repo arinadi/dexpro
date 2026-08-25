@@ -139,6 +139,28 @@ def test_run_glmark2_checks_termux_x11_is_running() -> None:
     )
 
 
+def test_run_glmark2_does_not_pass_off_screen() -> None:
+    # Regression test for a real reported bug: --off-screen (copied from
+    # XLabs' proot-container invocation) made every preset fail with
+    # "Error: main: Could not initialize canvas" against termux-x11,
+    # which only supports a plain onscreen window here.
+    import subprocess
+
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return subprocess.CompletedProcess(args, 0, stdout="glmark2 Score: 123\n", stderr="")
+
+    with mock.patch.object(gpu.native_packages, "ensure_binary", return_value=True):
+        with mock.patch.object(gpu.os.path, "exists", return_value=True):
+            with mock.patch.object(gpu.subprocess, "run", side_effect=fake_run):
+                score = gpu.run_glmark2(gpu.PRESETS[0])
+    check(score == 123, f"expected the mocked score to parse, got {score!r}")
+    check("--off-screen" not in captured["args"], f"got {captured['args']!r}")
+    check(captured["args"][0] == "glmark2", f"got {captured['args']!r}")
+
+
 def test_bench_reports_no_candidate_summary() -> None:
     messages: list[str] = []
     result = gpu.bench(log=messages.append)
@@ -160,6 +182,7 @@ TESTS = [
     test_run_glmark2_reports_when_glmark2_missing_and_pkg_unavailable,
     test_ensure_binary_delegates_to_native_packages_with_mapped_name,
     test_run_glmark2_checks_termux_x11_is_running,
+    test_run_glmark2_does_not_pass_off_screen,
     test_bench_reports_no_candidate_summary,
 ]
 
