@@ -9,7 +9,7 @@ input, not a selection list, and is left as follow-up.
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Grid, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label, SelectionList
 from textual.widgets.selection_list import Selection
@@ -30,7 +30,10 @@ class ExportScreen(Screen):
         with Vertical():
             yield Label(f"Export apps from '{self._container}'")
             yield SelectionList(id="desktop-files")
-            with Horizontal():
+            # Grid(row3), not a bare Horizontal — see doctor.py's compose()
+            # for why: Button#back's width:100% overflows a plain
+            # Horizontal row when a sibling button has no width override.
+            with Grid(classes="row3"):
                 yield Button("Export selected", id="export", variant="success")
                 yield Button("Refresh", id="refresh")
                 yield Button("Back", id="back")

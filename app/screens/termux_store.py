@@ -10,7 +10,7 @@ the native Termux layer itself.
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Grid, Horizontal, Vertical
+from textual.containers import Grid, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label
 
@@ -115,7 +115,10 @@ class TermuxReposScreen(Screen):
         with Vertical():
             yield Label("Termux Repos", classes="screen-title")
             yield DataTable(id="repo-table")
-            with Horizontal():
+            # Grid(row3), not a bare Horizontal: Button#back's width:100%
+            # overflows a plain Horizontal row when the siblings (Enable/
+            # Refresh) have no width override of their own.
+            with Grid(classes="row3"):
                 yield Button("Enable", id="enable", variant="success")
                 yield Button("Refresh", id="refresh")
                 yield Button("Back", id="back")

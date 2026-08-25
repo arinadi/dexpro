@@ -225,7 +225,10 @@ class AddRepoScreen(Screen):
             yield Input(placeholder="name (e.g. myrepo)", id="repo-name")
             yield Input(placeholder="repo URI (https://...)", id="repo-uri")
             yield Input(placeholder="signing key URL (https://...)", id="repo-key")
-            with Horizontal():
+            # Grid(row2), not a bare Horizontal: Button#back's width:100%
+            # overflows a plain Horizontal row when the sibling (Add) has
+            # no width override of its own.
+            with Grid(classes="row2"):
                 yield Button("Add", id="submit", variant="success")
                 yield Button("Back", id="back")
         yield Footer()

@@ -5,7 +5,7 @@ a Fix(N) aggregate action. Build-task-phase4.md Task 8.
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Grid, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header
 
@@ -30,7 +30,14 @@ class DoctorScreen(Screen):
         yield Header()
         with Vertical():
             yield DataTable(id="doctor-table")
-            with Horizontal():
+            # Grid(row3), not a bare Horizontal: Button#back's width:100%
+            # (correct when Back stands alone) fights an auto-width
+            # sibling in a plain Horizontal, overflowing the row and
+            # clipping whichever button's label lands past the edge —
+            # reported live as an invisible Back label, on a screen
+            # variant="primary" removal alone didn't fix, because that
+            # was never the actual cause here.
+            with Grid(classes="row3"):
                 yield Button("Fix", id="fix", variant="warning")
                 yield Button("Refresh", id="refresh")
                 yield Button("Back", id="back")

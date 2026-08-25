@@ -44,7 +44,7 @@ import os
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Grid, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Input, Label, Select, Static
 
@@ -99,7 +99,10 @@ class SettingsScreen(Screen):
                 yield Input(placeholder="/sdcard/Fonts/MyFont.ttf", id="settings-font-path")
                 yield Button("Apply", id="apply-font")
             yield Static("", id="settings-status")
-            with Horizontal():
+            # Grid(row2), not a bare Horizontal: Button#back's width:100%
+            # overflows a plain Horizontal row when the sibling (Uninstall)
+            # has no width override of its own.
+            with Grid(classes="row2"):
                 yield Button("Uninstall", id="uninstall", variant="error")
                 yield Button("Back", id="back")
         yield Footer()
