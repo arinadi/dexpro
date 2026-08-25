@@ -46,6 +46,17 @@ no ``--off-screen`` — so it was dropped. termux-x11's Mesa/virgl stack
 apparently doesn't support the off-screen EGL surface path the way a
 full desktop Mesa install does; XLabs' own container is a different
 enough environment that this specific flag didn't carry over correctly.
+
+2026-08-26 (later still): with --off-screen gone, "software" scored for
+real, but "virgl" failed with "lost connection to rendering server on 8
+read -1 22" — glmark2's virgl client speaks its protocol over a socket
+to a *separate* renderer process (virgl_test_server_android), which
+nothing here ever launched. Checking the binary merely *exists*
+(candidates()/_ensure_binary, already in place) is not the same as it
+being *running*. Added Preset.server + _start_renderer()/_stop_renderer()
+(Popen the renderer, wait, confirm via pgrep, always pkill it in a
+`finally` after the client runs) — ported from XLabs' own
+_start_renderer(), which does exactly this for the same reason.
 """
 
 from __future__ import annotations
@@ -54,6 +65,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -76,6 +88,12 @@ class Preset:
     env: dict[str, str]
     adreno_only: bool = False
     requires: tuple[str, ...] = ()  # binaries that must exist for this preset to be viable
+    # A renderer binary to launch as a background process before the GL
+    # client (glmark2) runs, or None if the client talks to the GPU
+    # directly. virgl speaks its protocol over a socket to a *separate*
+    # process — glmark2 alone was never going to find anything to
+    # connect to.
+    server: str | None = None
 
 
 PRESETS: tuple[Preset, ...] = (
@@ -84,6 +102,7 @@ PRESETS: tuple[Preset, ...] = (
         name="virgl",
         env={"GALLIUM_DRIVER": "virpipe"},
         requires=("virgl_test_server_android",),
+        server="virgl_test_server_android",
     ),
     Preset(
         name="zink",
@@ -194,6 +213,49 @@ def _ensure_binary(binary: str, log: Log | None, _attempted: set[str] | None = N
     )
 
 
+def _stop_renderer() -> None:
+    try:
+        subprocess.run(["pkill", "-f", "virgl_test_server"], capture_output=True, timeout=10)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+
+def _start_renderer(preset: Preset, log: Log | None, _attempted: set[str] | None = None) -> bool:
+    """Launches `preset.server` (e.g. virgl_test_server_android) as a
+    background process before the GL client runs, if the preset needs
+    one. Confirmed necessary from a real device run: glmark2 failed with
+    "lost connection to rendering server on 8 read -1 22" because
+    nothing had ever started virgl_test_server_android — checking the
+    binary exists (candidates()/_ensure_binary) is not the same as it
+    actually being *running*.
+    """
+    _stop_renderer()
+    if preset.server is None:
+        return True
+    if not _ensure_binary(preset.server, log, _attempted):
+        return False
+    try:
+        subprocess.Popen(
+            [preset.server], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+    except OSError as exc:
+        if log:
+            log(f"{preset.name}: could not start {preset.server}: {exc}")
+        return False
+    time.sleep(1.5)
+    try:
+        check = subprocess.run(
+            ["pgrep", "-f", preset.server], capture_output=True, timeout=5
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        check = None
+    if check is None or check.returncode != 0:
+        if log:
+            log(f"{preset.name}: {preset.server} did not stay running")
+        return False
+    return True
+
+
 def run_glmark2(
     preset: Preset, log: Log | None = None, _attempted: set[str] | None = None
 ) -> int | None:
@@ -214,46 +276,57 @@ def run_glmark2(
             )
         return None
 
-    env = dict(os.environ)
-    env["DISPLAY"] = x11.DISPLAY
-    env.update(preset.env)
-    # No --off-screen: a real device run (2026-08-26) failed with "Error:
-    # main: Could not initialize canvas" on every preset with it. Termux
-    # community reports (termux/termux-packages#16763) confirm the working
-    # invocation against termux-x11 is a plain onscreen window — e.g.
-    # ``DISPLAY=:1 GALLIUM_DRIVER=virpipe glmark2`` — not an off-screen EGL
-    # surface, which termux-x11's Mesa/virgl stack apparently doesn't
-    # support the way a full desktop Mesa install (XLabs' proot-distro
-    # container, where --off-screen was ported from) does.
-    args = ["glmark2"]
-    for scene in GLMARK2_SCENES:
-        args += ["-b", f"{scene}:duration={GLMARK2_SECONDS_PER_SCENE}"]
-
-    if log:
-        log("$ " + " ".join(args))
-    try:
-        result = subprocess.run(
-            args,
-            env=env,
-            capture_output=True,
-            timeout=(GLMARK2_SECONDS_PER_SCENE * len(GLMARK2_SCENES)) + 15,
-            text=True,
-        )
-    except subprocess.TimeoutExpired:
-        if log:
-            log(f"{preset.name}: timed out")
+    if not _start_renderer(preset, log, _attempted):
         return None
 
-    match = _SCORE_RE.search(result.stdout)
-    if match:
-        return int(match.group(1))
+    try:
+        env = dict(os.environ)
+        env["DISPLAY"] = x11.DISPLAY
+        env.update(preset.env)
+        # No --off-screen: a real device run (2026-08-26) failed with
+        # "Error: main: Could not initialize canvas" on every preset with
+        # it. Termux community reports (termux/termux-packages#16763)
+        # confirm the working invocation against termux-x11 is a plain
+        # onscreen window — e.g. ``DISPLAY=:1 GALLIUM_DRIVER=virpipe
+        # glmark2`` — not an off-screen EGL surface, which termux-x11's
+        # Mesa/virgl stack apparently doesn't support the way a full
+        # desktop Mesa install (XLabs' proot-distro container, where
+        # --off-screen was ported from) does.
+        args = ["glmark2"]
+        for scene in GLMARK2_SCENES:
+            args += ["-b", f"{scene}:duration={GLMARK2_SECONDS_PER_SCENE}"]
 
-    if log:
-        log(f"{preset.name}: no score (exit {result.returncode})")
-        tail = (result.stdout + result.stderr).strip().splitlines()[-5:]
-        for line in tail:
-            log(f"    {line}")
-    return None
+        if log:
+            log("$ " + " ".join(args))
+        try:
+            result = subprocess.run(
+                args,
+                env=env,
+                capture_output=True,
+                timeout=(GLMARK2_SECONDS_PER_SCENE * len(GLMARK2_SCENES)) + 15,
+                text=True,
+            )
+        except subprocess.TimeoutExpired:
+            if log:
+                log(f"{preset.name}: timed out")
+            return None
+
+        match = _SCORE_RE.search(result.stdout)
+        if match:
+            return int(match.group(1))
+
+        if log:
+            log(f"{preset.name}: no score (exit {result.returncode})")
+            tail = (result.stdout + result.stderr).strip().splitlines()[-5:]
+            for line in tail:
+                log(f"    {line}")
+        return None
+    finally:
+        # A leftover virgl_test_server_android would otherwise keep
+        # running in the background after Bench finishes, and could
+        # confuse the *next* preset's own renderer (or a later manual
+        # Bench run) — always tear it down, success or failure.
+        _stop_renderer()
 
 
 def bench(log: Log | None = None) -> tuple[Preset, int] | None:

@@ -149,7 +149,8 @@ def test_run_glmark2_does_not_pass_off_screen() -> None:
     captured = {}
 
     def fake_run(args, **kwargs):
-        captured["args"] = args
+        if args and args[0] == "glmark2":
+            captured["args"] = args
         return subprocess.CompletedProcess(args, 0, stdout="glmark2 Score: 123\n", stderr="")
 
     with mock.patch.object(gpu.native_packages, "ensure_binary", return_value=True):
@@ -157,8 +158,60 @@ def test_run_glmark2_does_not_pass_off_screen() -> None:
             with mock.patch.object(gpu.subprocess, "run", side_effect=fake_run):
                 score = gpu.run_glmark2(gpu.PRESETS[0])
     check(score == 123, f"expected the mocked score to parse, got {score!r}")
+    check("args" in captured, "glmark2 itself was never invoked")
     check("--off-screen" not in captured["args"], f"got {captured['args']!r}")
     check(captured["args"][0] == "glmark2", f"got {captured['args']!r}")
+
+
+def test_start_renderer_is_a_noop_when_preset_needs_no_server() -> None:
+    ok = gpu._start_renderer(gpu.PRESETS[0], None)  # software preset, server=None
+    check(ok is True, "a preset with no server requirement should always start clean")
+
+
+def test_start_renderer_launches_and_confirms_virgl_server() -> None:
+    # Regression test for a real reported bug: "lost connection to
+    # rendering server on 8 read -1 22" — nothing ever launched
+    # virgl_test_server_android as a background process before glmark2
+    # tried to connect to it.
+    import subprocess
+
+    popen_calls = []
+
+    class FakePopen:
+        def __init__(self, args, **kwargs):
+            popen_calls.append(args)
+
+    with mock.patch.object(gpu.native_packages, "ensure_binary", return_value=True):
+        with mock.patch.object(gpu.subprocess, "Popen", side_effect=FakePopen):
+            with mock.patch.object(gpu.time, "sleep"):
+                with mock.patch.object(
+                    gpu.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0),
+                ):
+                    ok = gpu._start_renderer(gpu.preset_by_name("virgl"), None)
+    check(ok is True, "must report the renderer as up when pgrep confirms it")
+    check(popen_calls == [["virgl_test_server_android"]], f"got {popen_calls!r}")
+
+
+def test_start_renderer_reports_when_server_does_not_stay_running() -> None:
+    import subprocess
+
+    messages: list[str] = []
+    with mock.patch.object(gpu.native_packages, "ensure_binary", return_value=True):
+        with mock.patch.object(gpu.subprocess, "Popen"):
+            with mock.patch.object(gpu.time, "sleep"):
+                with mock.patch.object(
+                    gpu.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 1),
+                ):
+                    ok = gpu._start_renderer(gpu.preset_by_name("virgl"), messages.append)
+    check(ok is False, "must report failure when pgrep can't find the renderer afterward")
+    check(
+        any("did not stay running" in m for m in messages),
+        f"expected a reason logged, got {messages!r}",
+    )
 
 
 def test_bench_reports_no_candidate_summary() -> None:
@@ -183,6 +236,9 @@ TESTS = [
     test_ensure_binary_delegates_to_native_packages_with_mapped_name,
     test_run_glmark2_checks_termux_x11_is_running,
     test_run_glmark2_does_not_pass_off_screen,
+    test_start_renderer_is_a_noop_when_preset_needs_no_server,
+    test_start_renderer_launches_and_confirms_virgl_server,
+    test_start_renderer_reports_when_server_does_not_stay_running,
     test_bench_reports_no_candidate_summary,
 ]
 
