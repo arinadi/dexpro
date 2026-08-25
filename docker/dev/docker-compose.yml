@@ -1,0 +1,29 @@
+services:
+  dexpro-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dexpro-dev
+    hostname: dexpro-dev
+    stdin_open: true
+    tty: true
+
+    volumes:
+      # Live project mount
+      - ../../:/data/data/com.termux/files/home/dexpro
+      # WSLg / host X11 socket. On a Podman machine (a minimal Fedora
+      # CoreOS VM), WSLg's real socket lives at /mnt/wslg/.X11-unix/X0 —
+      # confirmed on this machine that plain /tmp/.X11-unix is NOT
+      # auto-linked there the way a full WSL2 distro does it. On a
+      # Docker Desktop / real WSL2 distro backend, /tmp/.X11-unix may be
+      # correct instead — verify with `podman machine ssh <name> "ls
+      # /mnt/wslg/.X11-unix /tmp/.X11-unix"` before assuming either.
+      - /mnt/wslg/.X11-unix:/tmp/.X11-unix:rw
+
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - PULSE_SERVER=tcp:127.0.0.1:4713
+      - LANG=en_US.UTF-8
+      - LC_ALL=en_US.UTF-8
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+      - XDG_RUNTIME_DIR=/tmp

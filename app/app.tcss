@@ -1,0 +1,13 @@
+#menu {
+    grid-size: 2;
+    grid-gutter: 1 2;
+    padding: 1 2;
+}
+
+#confirm-dialog {
+    align: center middle;
+    width: 60;
+    height: 11;
+    border: thick $error;
+    padding: 1 2;
+}
