@@ -73,3 +73,12 @@ Per-container "Export" action: list `.desktop` files and known binaries found in
 ## Exit criteria
 
 An exported app launches and renders through the native session (Phase 1) without the user manually entering the container first — one tap/command from the host.
+
+## Verified on-device (Podman dev container, 2026-08-25)
+
+Implementation and testing happened against the real `proot-distro` v5.8.0 CLI, same as Phase 2. Real finding, not hypothetical:
+
+- **`list_desktop_files()`'s multi-directory search had a real bug**: joining the per-directory `find` invocations with a bare space (`" ".join(...)`) produced one malformed command — the shell parsed the second `find /root/.local/share/applications ...` as extra arguments to the *first* `find` call, not a separate command. This silently returned an empty list against a container that genuinely had a `.desktop` file seeded in it (`/usr/share/applications/fakenvim.desktop`) — caught only by running it for real, not by local unit tests (which only exercise the "proot-distro missing entirely" path). Fixed by joining with `;` instead, and extracted the script-building into `desktop_find_script()` so the separator itself has a dedicated unit test now (`test_desktop_find_script_joins_commands_with_a_separator`).
+- **Confirmed working end-to-end after the fix**: seeded a synthetic `.desktop` file inside a real `proot-distro` container, ran discovery (found it), ran `export_app()` (copied it to the host, correctly rewrote `Exec=nvim %F` to `Exec=proot-distro login exptest --shared-tmp -- nvim %F`, preserved `Name=`/`Icon=`/`Type=`, added the `X-Dexpro-Container=exptest` ownership marker), confirmed `list_exports()` reflects it, and confirmed `delete_app_export()` removes it and refuses to touch anything it didn't create.
+
+Not yet exercised: icon export (the seeded test `.desktop` referenced `Icon=nvim`, but the container had no actual icon file at any of the conventional paths this module checks, so the icon-copy path never actually ran against real icon bytes — only its "nothing found, skip" branch); binary export (`export_bin`/`wrapper_script`) against a real invocation of the resulting wrapper script; and — same limitation as Phase 1 — actually launching an exported GUI app and confirming it renders through the native session. That last one is this phase's actual Exit Criteria and remains unverified, same class of gap as Phase 1's own unresolved X11-rendering question.

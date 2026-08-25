@@ -18,9 +18,17 @@ Log = Callable[[str], None]
 
 
 def is_running() -> bool:
+    """Confirmed on-device: `pactl info` autospawns a PulseAudio daemon
+    as a side effect of merely checking whether one is running — a
+    Doctor status check silently provisioning a resource just by asking
+    about it is surprising and wrong for a read-only check. PULSE_AUTOSPAWN=0
+    makes this a genuine read-only probe."""
+    import os
+
+    env = dict(os.environ, PULSE_AUTOSPAWN="0")
     try:
         result = subprocess.run(
-            ["pactl", "info"], capture_output=True, timeout=5, text=True
+            ["pactl", "info"], capture_output=True, timeout=5, text=True, env=env
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):

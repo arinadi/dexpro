@@ -18,13 +18,14 @@ from __future__ import annotations
 import subprocess
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Grid, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label
 
 from ..box import create as box_create
 from ..box import manager
 from .common import ActionScreen, ConfirmScreen
+from .export_screen import ExportScreen
 
 
 class CreateBoxScreen(Screen[None]):
@@ -58,9 +59,16 @@ class BoxManagerScreen(Screen):
         yield Header()
         with Vertical():
             yield DataTable(id="box-table")
-            with Horizontal():
+            # Grid, not Horizontal — a Horizontal row of six buttons
+            # overflows an 80-col terminal and pushes Back out of reach
+            # (confirmed: test_boxes_button_opens_box_manager failed
+            # with pilot.click("#back") raising OutOfBounds once Export
+            # was added as a sixth button). Same fix XLabs' own
+            # MainScreen already needed for the same reason.
+            with Grid(id="box-actions"):
                 yield Button("Create", id="create")
                 yield Button("Enter", id="enter")
+                yield Button("Export", id="export")
                 yield Button("Remove", id="remove")
                 yield Button("Refresh", id="refresh")
                 yield Button("Back", id="back")
@@ -95,6 +103,14 @@ class BoxManagerScreen(Screen):
             await self._remove_selected()
         elif event.button.id == "enter":
             self._enter_selected()
+        elif event.button.id == "export":
+            self._export_selected()
+
+    def _export_selected(self) -> None:
+        name = self._selected_name()
+        if name is None:
+            return
+        self.app.push_screen(ExportScreen(name))
 
     async def _remove_selected(self) -> None:
         name = self._selected_name()

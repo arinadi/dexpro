@@ -15,6 +15,18 @@ def check(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+async def wait_for_rows(pilot, app, selector: str, attempts: int = 80) -> int:
+    from textual.widgets import DataTable
+
+    for _ in range(attempts):
+        await asyncio.sleep(0.1)
+        await pilot.pause()
+        rows = app.screen.query_one(selector, DataTable).row_count
+        if rows:
+            return rows
+    return app.screen.query_one(selector, DataTable).row_count
+
+
 def run(tests: Sequence[Callable], label: str = "") -> int:
     """Run `tests` in order, printing ok/FAIL per test.
 

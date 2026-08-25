@@ -19,3 +19,10 @@
     border: thick $primary;
     padding: 1 2;
 }
+
+#box-actions {
+    grid-size: 3;
+    grid-gutter: 1 2;
+    padding: 1 2;
+    height: auto;
+}

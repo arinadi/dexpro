@@ -1,0 +1,104 @@
+"""app/doctor/checks.py: the Issue model and native-layer checks when
+nothing (X11, proot-distro, termux-x11) is actually installed here.
+
+    python tests/test_doctor_checks.py
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from support import check, run
+
+from app.doctor import checks
+
+
+def test_check_x11_socket_reports_not_ok_when_absent() -> None:
+    issue = checks.check_x11_socket()
+    check(issue.ok is False, "no X11 socket exists here — must report not-ok")
+    check(issue.detail, "a failing check should explain why")
+
+
+def test_check_gpu_profile_defaults_to_software_and_is_ok() -> None:
+    issue = checks.check_gpu_profile()
+    check(issue.ok, "the software baseline should never itself be flagged not-ok")
+    check("software" in issue.detail, f"expected the software profile mentioned: {issue.detail!r}")
+
+
+def test_check_audio_is_a_read_only_probe() -> None:
+    # Confirmed on-device (Podman container): `pactl info` autospawns a
+    # PulseAudio daemon as a side effect of merely checking whether one
+    # is running — that's the opposite of what a Doctor status check
+    # should do. Run the check twice; a genuinely read-only probe must
+    # report the same thing both times, not "start" something on the
+    # first call. (Whether PulseAudio happens to already be running on
+    # this host isn't asserted either way — that varies by environment.)
+    first = checks.check_audio()
+    second = checks.check_audio()
+    check(first.ok == second.ok, "check_audio() must not change system state just by running")
+    check(first.fix is not None, "audio should be auto-fixable (ensure_server)")
+
+
+def test_check_wakelock_binary_reports_a_definite_bool() -> None:
+    # Presence varies by environment (absent on this Windows dev
+    # machine, but confirmed present even in a bare Podman container —
+    # termux-wake-lock ships in core termux-tools, not a separate
+    # Termux:API package) — this only asserts the check's own contract,
+    # not a specific environment's state.
+    issue = checks.check_wakelock_binary()
+    check(isinstance(issue.ok, bool), "ok must be a definite bool")
+    check(issue.fix is None, "a missing binary isn't something Doctor can install by itself")
+    if not issue.ok:
+        check(issue.detail, "a failing check should explain why")
+
+
+def test_check_termux_x11_installed_reports_not_ok_when_absent() -> None:
+    issue = checks.check_termux_x11_installed()
+    check(issue.ok is False, "termux-x11 isn't installed here")
+    check(not issue.unknown, "an absent package is a definite not-ok, not an unknown")
+
+
+def test_run_native_checks_returns_one_issue_per_check() -> None:
+    issues = checks.run_native_checks()
+    check(len(issues) == len(checks.NATIVE_CHECKS), "one Issue per registered check")
+    check(all(isinstance(i, checks.Issue) for i in issues), "every result must be an Issue")
+
+
+def test_container_rootfs_path_is_none_for_nonexistent_container() -> None:
+    result = checks.container_rootfs_path("definitely-not-a-real-container")
+    check(result is None, "a container that was never created has no rootfs path")
+
+
+def test_check_user_uid_mapped_is_unknown_when_rootfs_missing() -> None:
+    issue = checks.check_user_uid_mapped("definitely-not-a-real-container", "dev")
+    check(issue.ok is False, "an unresolvable rootfs must not be reported ok")
+    check(issue.unknown, "should be flagged unknown, not a false failure claim")
+
+
+def test_run_all_checks_includes_native_and_per_container() -> None:
+    issues = checks.run_all_checks(containers=["fake-container"])
+    names = [i.name for i in issues]
+    has_container_check = any("apt lists" in n for n in names)
+    check(has_container_check, "per-container checks must be included for the given container")
+    grows = len(issues) > len(checks.NATIVE_CHECKS)
+    check(grows, "container checks must add to, not replace, native ones")
+
+
+TESTS = [
+    test_check_x11_socket_reports_not_ok_when_absent,
+    test_check_gpu_profile_defaults_to_software_and_is_ok,
+    test_check_audio_is_a_read_only_probe,
+    test_check_wakelock_binary_reports_a_definite_bool,
+    test_check_termux_x11_installed_reports_not_ok_when_absent,
+    test_run_native_checks_returns_one_issue_per_check,
+    test_container_rootfs_path_is_none_for_nonexistent_container,
+    test_check_user_uid_mapped_is_unknown_when_rootfs_missing,
+    test_run_all_checks_includes_native_and_per_container,
+]
+
+if __name__ == "__main__":
+    sys.exit(run(TESTS, label=os.path.basename(__file__)))

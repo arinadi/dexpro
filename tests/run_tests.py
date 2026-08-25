@@ -19,12 +19,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import support
 from test_audio import TESTS as AUDIO_TESTS
+from test_backup import TESTS as BACKUP_TESTS
+from test_backup_screen import TESTS as BACKUP_SCREEN_TESTS
 from test_box_create import TESTS as BOX_CREATE_TESTS
+from test_box_export import TESTS as BOX_EXPORT_TESTS
 from test_box_manager import TESTS as BOX_MANAGER_TESTS
 from test_box_manager_screen import TESTS as BOX_MANAGER_SCREEN_TESTS
 from test_box_packages import TESTS as BOX_PACKAGES_TESTS
 from test_box_user import TESTS as BOX_USER_TESTS
 from test_config import TESTS as CONFIG_TESTS
+from test_doctor_checks import TESTS as DOCTOR_CHECKS_TESTS
+from test_doctor_duplicates import TESTS as DOCTOR_DUPLICATES_TESTS
+from test_doctor_electron import TESTS as DOCTOR_ELECTRON_TESTS
+from test_doctor_fonts import TESTS as DOCTOR_FONTS_TESTS
+from test_doctor_screen import TESTS as DOCTOR_SCREEN_TESTS
+from test_export_screen import TESTS as EXPORT_SCREEN_TESTS
 from test_gpu import TESTS as GPU_TESTS
 from test_main_screen import TESTS as MAIN_SCREEN_TESTS
 from test_session import TESTS as SESSION_TESTS
@@ -44,8 +53,17 @@ ALL_TESTS = [
     *BOX_CREATE_TESTS,
     *BOX_USER_TESTS,
     *BOX_PACKAGES_TESTS,
+    *BOX_EXPORT_TESTS,
+    *DOCTOR_CHECKS_TESTS,
+    *DOCTOR_ELECTRON_TESTS,
+    *DOCTOR_DUPLICATES_TESTS,
+    *DOCTOR_FONTS_TESTS,
+    *BACKUP_TESTS,
     *MAIN_SCREEN_TESTS,
     *BOX_MANAGER_SCREEN_TESTS,
+    *EXPORT_SCREEN_TESTS,
+    *DOCTOR_SCREEN_TESTS,
+    *BACKUP_SCREEN_TESTS,
 ]
 
 
