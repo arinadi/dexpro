@@ -74,13 +74,29 @@ def enable_repo(name: str, log: Log | None = None) -> bool:
 
 
 def search(term: str, log: Log | None = None) -> list[str]:
+    # apt-cache, not `pkg search`: `pkg` is Termux's own wrapper and
+    # prints a "Checking availability of current mirror" preamble to
+    # stdout before results, which the caller can't tell apart from a
+    # real match — it was landing as a bogus row in the results table.
+    # `pkg search` also formats each hit as a multi-line block
+    # ("name/repo,now version arch" then an indented description line),
+    # which breaks the one-line-per-package assumption the table/select
+    # logic depends on (selecting the description line and extracting
+    # its first word installs garbage, not the package). apt-cache
+    # search --names-only gives one "name - description" line per
+    # match, same format box/packages.py's container-side search()
+    # already relies on.
     if not is_safe_term(term):
         if log:
             log(f"rejected unsafe search term: {term!r}")
         return []
     try:
         result = subprocess.run(
-            ["pkg", "search", term], capture_output=True, timeout=30, text=True, check=True
+            ["apt-cache", "search", "--names-only", term],
+            capture_output=True,
+            timeout=30,
+            text=True,
+            check=True,
         )
         return [line for line in result.stdout.splitlines() if line.strip()]
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:

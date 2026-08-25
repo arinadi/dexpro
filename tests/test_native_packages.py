@@ -51,10 +51,38 @@ def test_uninstall_rejects_unsafe_package_name() -> None:
     check(result is False, "must refuse an unsafe name")
 
 
-def test_search_fails_gracefully_when_pkg_missing() -> None:
-    # `pkg` isn't a real binary on this Windows dev machine either.
+def test_search_fails_gracefully_when_apt_cache_missing() -> None:
+    # `apt-cache` isn't a real binary on this Windows dev machine either.
     result = packages.search("neovim")
-    check(result == [], f"expected an empty list when pkg is unavailable, got {result!r}")
+    check(result == [], f"expected an empty list when apt-cache is unavailable, got {result!r}")
+
+
+def test_search_uses_apt_cache_not_pkg() -> None:
+    # Regression test for a real reported bug: `pkg search` prints a
+    # "Checking availability of current mirror" preamble to stdout
+    # before results (landing as a bogus row in the UI's table) and
+    # formats each hit as a multi-line block instead of one line per
+    # package (breaking the "first token of the row is the package
+    # name" assumption the Store screen relies on — selecting the
+    # indented description line installed garbage). apt-cache
+    # search --names-only has neither problem and matches what
+    # box/packages.py's container-side search() already uses.
+    import subprocess
+    import unittest.mock as mock
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="neovim - Vim text editor\n", stderr="")
+
+    with mock.patch("subprocess.run", fake_run):
+        result = packages.search("neovim")
+
+    check(captured["cmd"][0] == "apt-cache", f"expected apt-cache, got {captured['cmd']!r}")
+    not_pkg = "pkg" not in captured["cmd"]
+    check(not_pkg, f"must not shell out to the pkg wrapper: {captured['cmd']!r}")
+    check(result == ["neovim - Vim text editor"], f"got {result!r}")
 
 
 TESTS = [
@@ -63,7 +91,8 @@ TESTS = [
     test_search_rejects_unsafe_term_before_touching_the_subprocess,
     test_install_rejects_unsafe_package_name,
     test_uninstall_rejects_unsafe_package_name,
-    test_search_fails_gracefully_when_pkg_missing,
+    test_search_fails_gracefully_when_apt_cache_missing,
+    test_search_uses_apt_cache_not_pkg,
 ]
 
 if __name__ == "__main__":
