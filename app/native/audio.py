@@ -41,6 +41,19 @@ wave/math/struct — ported near-verbatim from XLabs, which generates
 rather than ships a file specifically to avoid bundling one for a single
 beep) and plays it through paplay, so "audio works" means something was
 actually verified, not assumed.
+
+2026-08-26: real device report — Settings' Test button plays a tone
+successfully, but nothing plays from inside the actual XFCE session.
+Root cause: every call in this module inherits whatever XDG_RUNTIME_DIR
+happens to be ambient in the TUI process's own environment (self-
+consistent, which is why Test worked end to end), but native/session.py's
+launch script independently computed its *own* XDG_RUNTIME_DIR and built
+PULSE_SERVER from it with a wrong relative path (`$XDG_RUNTIME_DIR/../pulse/
+native` instead of PulseAudio's real default, `$XDG_RUNTIME_DIR/pulse/
+native`) — nothing guaranteed the two ever agreed on where the socket
+actually is. Fixed by pinning every PulseAudio-facing call here (and the
+session script) to the single shared `const.XDG_RUNTIME_DIR` constant via
+`_pulse_env()`, so there's one address, not two independent guesses.
 """
 
 from __future__ import annotations
@@ -74,16 +87,24 @@ def set_enabled(enabled: bool) -> None:
         config.unset(ENABLED_KEY)
 
 
+def _pulse_env() -> dict[str, str]:
+    # Pin XDG_RUNTIME_DIR to dexpro's own fixed constant rather than
+    # whatever's ambient — see const.py's own comment on why: this is
+    # what makes ensure_server()'s daemon, is_running()/sinks()'s checks,
+    # and the XFCE session script's PULSE_SERVER all agree on the same
+    # socket location instead of each independently guessing.
+    return dict(os.environ, PULSE_AUTOSPAWN="0", XDG_RUNTIME_DIR=const.XDG_RUNTIME_DIR)
+
+
 def is_running() -> bool:
     """Confirmed on-device: `pactl info` autospawns a PulseAudio daemon
     as a side effect of merely checking whether one is running — a
     Doctor status check silently provisioning a resource just by asking
     about it is surprising and wrong for a read-only check. PULSE_AUTOSPAWN=0
     makes this a genuine read-only probe."""
-    env = dict(os.environ, PULSE_AUTOSPAWN="0")
     try:
         result = subprocess.run(
-            ["pactl", "info"], capture_output=True, timeout=5, text=True, env=env
+            ["pactl", "info"], capture_output=True, timeout=5, text=True, env=_pulse_env()
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -97,6 +118,12 @@ def ensure_server(log: Log | None = None) -> bool:
         if log:
             log("warning: pulseaudio unavailable — session will run without audio")
         return False
+    # The dir must exist before pulseaudio starts — the XFCE session
+    # script also creates it, but that runs *after* this (Lifecycle.start
+    # order: audio before x11/session), so this can't rely on the script
+    # having done it already.
+    os.makedirs(const.XDG_RUNTIME_DIR, exist_ok=True)
+    os.chmod(const.XDG_RUNTIME_DIR, 0o700)
     if log:
         log("$ pulseaudio --start --exit-idle-time=-1")
     try:
@@ -105,6 +132,7 @@ def ensure_server(log: Log | None = None) -> bool:
             capture_output=True,
             timeout=15,
             text=True,
+            env=_pulse_env(),
         )
     except subprocess.TimeoutExpired as exc:
         if log:
@@ -125,14 +153,13 @@ def sinks() -> list[str]:
     """Output devices PulseAudio knows about. No sink means no sound,
     even with the daemon running — is_running() alone can't tell the
     two apart."""
-    env = dict(os.environ, PULSE_AUTOSPAWN="0")
     try:
         result = subprocess.run(
             ["pactl", "list", "sinks", "short"],
             capture_output=True,
             timeout=10,
             text=True,
-            env=env,
+            env=_pulse_env(),
         )
         if result.returncode != 0:
             return []
@@ -197,7 +224,9 @@ def test(log: Log) -> bool:
 
     log("playing (you should hear a short tone)...")
     try:
-        result = subprocess.run(["paplay", tone], capture_output=True, timeout=10, text=True)
+        result = subprocess.run(
+            ["paplay", tone], capture_output=True, timeout=10, text=True, env=_pulse_env()
+        )
     except subprocess.TimeoutExpired:
         log("[red]paplay timed out.[/red]")
         return False

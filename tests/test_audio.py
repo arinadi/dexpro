@@ -79,6 +79,18 @@ def test_set_enabled_round_trips() -> None:
     check(audio.is_enabled() is False, "set_enabled(False) must persist and clear the key")
 
 
+def test_pulse_env_pins_xdg_runtime_dir_to_the_shared_constant() -> None:
+    # Regression test for a real reported bug: "Test sudah on dan bunyi
+    # tapi di XFCE masih belum keluar suara" — every PulseAudio-facing
+    # call here must agree with the XFCE session script on exactly the
+    # same XDG_RUNTIME_DIR, or the two independently guess and disagree.
+    env = audio._pulse_env()
+    check(
+        env["XDG_RUNTIME_DIR"] == const.XDG_RUNTIME_DIR,
+        f"expected the shared constant, got {env['XDG_RUNTIME_DIR']!r}",
+    )
+
+
 def test_sinks_returns_empty_list_when_pactl_missing() -> None:
     # No pactl on this Windows dev machine — must fail gracefully to
     # "no sinks", not raise.
@@ -130,6 +142,7 @@ TESTS = [
     test_is_running_returns_a_bool,
     test_ensure_server_never_raises,
     test_ensure_server_delegates_install_to_native_packages,
+    test_pulse_env_pins_xdg_runtime_dir_to_the_shared_constant,
     test_is_enabled_defaults_to_off,
     test_set_enabled_round_trips,
     test_sinks_returns_empty_list_when_pactl_missing,

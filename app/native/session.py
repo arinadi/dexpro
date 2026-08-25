@@ -16,6 +16,7 @@ proot in this path. See the Phase 1 spike table before adding it back.
 
 from __future__ import annotations
 
+from .. import const
 from . import gpu, x11
 
 _SHEBANG = "#!/data/data/com.termux/files/usr/bin/bash"
@@ -26,13 +27,22 @@ def build_script(preset: gpu.Preset, pulse_ok: bool) -> str:
         _SHEBANG,
         f"export DISPLAY={x11.DISPLAY}",
         "export NO_AT_BRIDGE=1",
-        'XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$PREFIX/tmp/dexpro-runtime}"',
+        # A fixed value, not "${XDG_RUNTIME_DIR:-...}" — audio.py's own
+        # PulseAudio calls (ensure_server/is_running/sinks/test's paplay)
+        # all pin XDG_RUNTIME_DIR to this exact same const.XDG_RUNTIME_DIR
+        # constant. Letting this fall back to an ambient value would risk
+        # disagreeing with what audio.py actually started the daemon
+        # under — confirmed live as "Test works, XFCE stays silent."
+        f'export XDG_RUNTIME_DIR="{const.XDG_RUNTIME_DIR}"',
         'mkdir -p "$XDG_RUNTIME_DIR"',
         'chmod 700 "$XDG_RUNTIME_DIR"',
-        "export XDG_RUNTIME_DIR",
     ]
     if pulse_ok:
-        lines.append('export PULSE_SERVER="${PULSE_SERVER:-unix:$XDG_RUNTIME_DIR/../pulse/native}"')
+        # PulseAudio's own real default socket is $XDG_RUNTIME_DIR/pulse/
+        # native — no "..": an earlier version of this line went up a
+        # directory first, which never matched where the daemon (started
+        # via audio.py, under the same XDG_RUNTIME_DIR) actually put it.
+        lines.append('export PULSE_SERVER="${PULSE_SERVER:-unix:$XDG_RUNTIME_DIR/pulse/native}"')
     lines.extend(gpu.client_exports(preset).splitlines())
     lines.append(
         'if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then\n'
