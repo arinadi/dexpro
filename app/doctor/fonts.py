@@ -23,10 +23,13 @@ FONT_NAME = "Fira Code 11"
 
 
 def install(log: Log | None = None) -> bool:
+    install_cmd = ["pkg", "install", "-y", *PACKAGES]
+    if log:
+        log(f"$ {' '.join(install_cmd)}")
     try:
-        subprocess.run(
-            ["pkg", "install", "-y", *PACKAGES], capture_output=True, timeout=120, check=True
-        )
+        subprocess.run(install_cmd, capture_output=True, timeout=120, check=True)
+        if log:
+            log("$ fc-cache -f")
         subprocess.run(["fc-cache", "-f"], capture_output=True, timeout=60, check=True)
         return True
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
@@ -59,6 +62,8 @@ def patch_terminal_font(path: str | None = None, log: Log | None = None) -> bool
             os.makedirs(directory, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             parser.write(f, space_around_delimiters=False)
+        if log:
+            log(f"set FontName={FONT_NAME} in {path}")
         return True
     except OSError as exc:
         if log:

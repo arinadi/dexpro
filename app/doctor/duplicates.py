@@ -94,10 +94,11 @@ def remove_termux_duplicates(packages: list[str], log: Log | None = None) -> boo
         if log:
             log(f"refusing to remove non-allow-listed package(s): {unknown!r}")
         return False
+    cmd = ["pkg", "uninstall", "-y", *packages]
+    if log:
+        log(f"$ {' '.join(cmd)}")
     try:
-        subprocess.run(
-            ["pkg", "uninstall", "-y", *packages], capture_output=True, timeout=60, check=True
-        )
+        subprocess.run(cmd, capture_output=True, timeout=60, check=True)
         return True
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         if log:

@@ -83,6 +83,8 @@ def find_unpatched(container: str) -> list[str]:
 def scan_and_patch(container: str, log: Log | None = None) -> list[str]:
     """Finds Electron apps inside the container and patches their
     .desktop files in place. Returns the list of patched paths."""
+    if log:
+        log(f"scanning '{container}' for Electron apps needing --no-sandbox...")
     patched: list[str] = []
     for desktop_path in find_unpatched(container):
         content = _read_desktop_file(container, desktop_path)

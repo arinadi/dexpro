@@ -42,6 +42,8 @@ def ensure_server(log: Log | None = None) -> bool:
         if log:
             log("warning: pulseaudio not installed — session will run without audio")
         return False
+    if log:
+        log("$ pulseaudio --start --exit-idle-time=-1")
     try:
         subprocess.run(
             ["pulseaudio", "--start", "--exit-idle-time=-1"],

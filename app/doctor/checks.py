@@ -29,12 +29,21 @@ from ..box import user as box_user
 from ..native import audio, gpu, x11
 from . import duplicates, electron, fonts
 
+Log = Callable[[str], None]
+
 
 class Issue(NamedTuple):
     name: str
     ok: bool
     detail: str = ""
-    fix: Callable[[], bool] | None = None
+    # Takes a logger — previously zero-argument, which meant a fix had no
+    # way to report what it was actually doing back to the screen even
+    # when the underlying function already tried to (gpu.bench() logs
+    # "benchmarking X..." per preset, but the old `fix=lambda:
+    # bool(gpu.bench())` dropped it on the floor). Reported live as
+    # "tidak ada kelihatan command yang dijalankan" — no visible command,
+    # no running log.
+    fix: Callable[[Log], bool] | None = None
     unknown: bool = False
 
 
@@ -55,14 +64,14 @@ def check_gpu_profile() -> Issue:
             f"persisted profile '{preset.name}' is Adreno-only but "
             f"detected vendor is '{vendor}'"
         )
-        return Issue("GPU renderer", False, detail, fix=lambda: bool(gpu.bench()))
+        return Issue("GPU renderer", False, detail, fix=lambda log: bool(gpu.bench(log)))
     return Issue("GPU renderer", True, f"using '{preset.name}'")
 
 
 def check_audio() -> Issue:
     running = audio.is_running()
     detail = "" if running else "PulseAudio isn't running"
-    return Issue("Audio", running, detail, fix=lambda: audio.ensure_server())
+    return Issue("Audio", running, detail, fix=lambda log: audio.ensure_server(log))
 
 
 def check_wakelock_binary() -> Issue:
@@ -104,7 +113,7 @@ def check_textual_importable() -> Issue:
     return Issue("Textual", present, detail, fix=None if present else _fix_textual)
 
 
-def _fix_textual() -> bool:
+def _fix_textual(log: Log) -> bool:
     target = "textual>=8.2"  # keep in sync with pyproject.toml
     attempts = [
         [sys.executable, "-m", "pip", "install", target, "--quiet"],
@@ -112,11 +121,15 @@ def _fix_textual() -> bool:
         [sys.executable, "-m", "pip", "install", target, "--quiet", "--user"],
     ]
     for cmd in attempts:
+        log(f"$ {' '.join(cmd)}")
         try:
-            if subprocess.run(cmd, capture_output=True, timeout=120).returncode == 0:
-                return True
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+            result = subprocess.run(cmd, capture_output=True, timeout=120, text=True)
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            log(f"  {exc}")
             continue
+        if result.returncode == 0:
+            return True
+        log(f"  exit {result.returncode}: {(result.stderr or '').strip()}")
     return False
 
 
@@ -131,15 +144,17 @@ def check_launcher_resolves() -> Issue:
     return Issue("Launcher", True, f"resolves to {target}")
 
 
-def _fix_launcher() -> bool:
+def _fix_launcher(log: Log) -> bool:
     link = os.path.join(const.PREFIX_BIN, "dexpro")
+    log(f"linking {link} -> {const.LAUNCHER_SRC}")
     try:
         if os.path.islink(link) or os.path.exists(link):
             os.remove(link)
         os.symlink(const.LAUNCHER_SRC, link)
         os.chmod(const.LAUNCHER_SRC, 0o755)
         return True
-    except OSError:
+    except OSError as exc:
+        log(f"  {exc}")
         return False
 
 
@@ -149,18 +164,21 @@ def check_termux_packages() -> Issue:
         return Issue("Termux packages", True, "all present")
     return Issue(
         "Termux packages", False, f"missing: {', '.join(missing)}",
-        fix=lambda: _fix_missing_packages(missing),
+        fix=lambda log: _fix_missing_packages(missing, log),
     )
 
 
-def _fix_missing_packages(missing: list[str]) -> bool:
+def _fix_missing_packages(missing: list[str], log: Log) -> bool:
+    cmd = ["pkg", "install", "-y", *missing]
+    log(f"$ {' '.join(cmd)}")
     try:
-        result = subprocess.run(
-            ["pkg", "install", "-y", *missing], capture_output=True, timeout=300
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        result = subprocess.run(cmd, capture_output=True, timeout=300, text=True)
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        log(f"  {exc}")
         return False
+    if result.returncode != 0:
+        log(f"  exit {result.returncode}: {(result.stderr or '').strip()}")
+    return result.returncode == 0
 
 
 def check_fonts() -> Issue:
@@ -169,7 +187,7 @@ def check_fonts() -> Issue:
         return Issue("Fonts", True, "installed")
     return Issue(
         "Fonts", False, f"missing: {', '.join(missing)}",
-        fix=lambda: fonts.install() and fonts.patch_terminal_font(),
+        fix=lambda log: fonts.install(log) and fonts.patch_terminal_font(log=log),
     )
 
 
@@ -219,7 +237,7 @@ def check_duplicates(container: str) -> Issue:
         return Issue(f"[{container}] duplicate tools", True, "none found")
     return Issue(
         f"[{container}] duplicate tools", False, f"also in Termux: {', '.join(dupes)}",
-        fix=lambda: duplicates.remove_termux_duplicates(dupes),
+        fix=lambda log: duplicates.remove_termux_duplicates(dupes, log=log),
     )
 
 
@@ -229,7 +247,7 @@ def check_electron(container: str) -> Issue:
         return Issue(f"[{container}] Electron apps", True, "none need patching")
     return Issue(
         f"[{container}] Electron apps", False, f"{len(unpatched)} need --no-sandbox",
-        fix=lambda: bool(electron.scan_and_patch(container)),
+        fix=lambda log: bool(electron.scan_and_patch(container, log=log)),
     )
 
 

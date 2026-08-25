@@ -79,7 +79,14 @@ class DoctorScreen(Screen):
             for index, issue in enumerate(fixable, start=1):
                 logger.write(f"[{index}/{total}] fixing: {issue.name}...")
                 try:
-                    ok = issue.fix()
+                    # logger itself is callable (its __call__ delegates to
+                    # write()), which is exactly the plain log(msg) shape
+                    # Issue.fix's functions expect — this is the actual
+                    # channel that was missing before: fix() took no
+                    # arguments at all, so nothing it did internally
+                    # (gpu.bench()'s per-preset progress, the $ command
+                    # lines added below) could ever reach this screen.
+                    ok = issue.fix(logger)
                 except Exception as exc:  # noqa: BLE001 — one bad fix must not stop the rest
                     logger.write(f"[{index}/{total}] [red]{issue.name} raised: {exc}[/red]")
                     continue

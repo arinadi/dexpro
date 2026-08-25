@@ -60,10 +60,12 @@ async def test_fix_isolates_one_failing_issue_from_the_rest() -> None:
 
     calls: list[str] = []
 
-    def bad_fix() -> bool:
+    def bad_fix(log) -> bool:
+        log("attempting the bad fix...")
         raise RuntimeError("boom")
 
-    def good_fix() -> bool:
+    def good_fix(log) -> bool:
+        log("attempting the good fix...")
         calls.append("good")
         return True
 
@@ -93,6 +95,13 @@ async def test_fix_isolates_one_failing_issue_from_the_rest() -> None:
         text = "\n".join(action_screen._lines)
         check("Bad check raised" in text, f"the raise should be logged: {text!r}")
         check("Good check: done" in text, f"the success should be logged: {text!r}")
+        # The actual bug being fixed: Issue.fix used to take no
+        # arguments at all, so a fix's own progress messages (like
+        # gpu.bench()'s per-preset "benchmarking..." lines) had no way
+        # to reach this log no matter what they did internally.
+        must_reach_screen = "fix()'s own log calls must reach the screen"
+        check("attempting the bad fix" in text, f"{must_reach_screen}: {text!r}")
+        check("attempting the good fix" in text, f"{must_reach_screen}: {text!r}")
 
 
 TESTS = [
