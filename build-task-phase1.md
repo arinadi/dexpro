@@ -120,4 +120,12 @@ Full Doctor is Phase 4, but this phase needs a `collect_diagnostics()`-equivalen
 - `dexpro stop` tears down cleanly and verifiably (zero orphaned processes).
 - Wake-lock held for the session's duration.
 - GPU profile persisted and reused on next start without re-benchmarking (unless `--rebench`).
+
+## Verified on-device (real device, 2026-08-25)
+
+First actual Tier 3 (real device) data point for this project — everything before this was Tier 1/2 only.
+
+- `install.py`'s single-batch `pkg install -y <6 packages>` failed with "Unable to locate package" and installed nothing (not even the packages that would have resolved fine). Root cause: the package list included bare `virglrenderer`, which is not a valid Termux package name — `app/native/gpu.py`'s `virgl` preset already assumed the correct name (`virgl_test_server_android` binary, shipped by package `virglrenderer-android`), confirmed by cross-referencing XLabs' own `install.py` (`D:\XLabs\install.py`), which uses `virglrenderer-android` and documents the exact same batch-failure trap: "One unavailable name fails the whole line and takes every other package in it down too."
+- Fix applied: renamed to `virglrenderer-android`, and restructured `install_packages()` into labeled groups with per-package retry on group failure (same pattern XLabs uses), so one bad/unavailable name can no longer take down unrelated packages in the same batch.
+- Not yet re-confirmed on the real device (only Tier 1: ruff + `tests/run_tests.py`, both pass) — next real-device install run should confirm the corrected package list resolves.
 - A/B bench numbers recorded against a full-proot reference session (even if the improvement threshold itself isn't fixed yet — PRD §4 leaves the exact number open until a baseline exists).

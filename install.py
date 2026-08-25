@@ -13,29 +13,45 @@ import sys
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# termux-x11-nightly/virglrenderer/xfce4/xfce4-terminal all live in
+# termux-x11-nightly/virglrenderer-android/xfce4/xfce4-terminal all live in
 # x11-repo, not termux-main — it must be installed AND its package list
 # picked up (a second `pkg update`) before apt can see them at all.
-PACKAGES = (
-    "termux-x11-nightly",
-    "virglrenderer",
-    "pulseaudio-utils",
-    "dbus",
-    "xfce4",
-    "xfce4-terminal",
-)
+#
+# Installed in labeled groups, each retried package-by-package on group
+# failure: apt fails an ENTIRE `pkg install` line if even one name in it is
+# unavailable, which would otherwise take down unrelated packages (xfce4,
+# dbus, ...) alongside the bad one. Mirrors XLabs' install_termux_packages().
+# virglrenderer-android (not bare "virglrenderer") is the package that
+# actually provides virgl_test_server_android, which app/native/gpu.py's
+# "virgl" preset requires.
+PACKAGE_GROUPS = {
+    "Termux:X11": ["termux-x11-nightly"],
+    "graphics": ["virglrenderer-android"],
+    "audio/dbus": ["pulseaudio-utils", "dbus"],
+    "desktop": ["xfce4", "xfce4-terminal"],
+}
 
 
-def run(cmd: list[str]) -> None:
+def run(cmd: list[str], check: bool = True) -> int:
     print(f">>> {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
+    result = subprocess.run(cmd)
+    if check:
+        result.check_returncode()
+    return result.returncode
 
 
 def install_packages() -> None:
     run(["pkg", "update", "-y"])
     run(["pkg", "install", "-y", "x11-repo"])
     run(["pkg", "update", "-y"])
-    run(["pkg", "install", "-y", *PACKAGES])
+
+    for label, packages in PACKAGE_GROUPS.items():
+        if run(["pkg", "install", "-y", *packages], check=False) == 0:
+            continue
+        print(f">>> {label} failed as a group, retrying one at a time")
+        missing = [p for p in packages if run(["pkg", "install", "-y", p], check=False) != 0]
+        if missing:
+            raise RuntimeError(f"{label}: could not install: {', '.join(missing)}")
 
 
 def link_launcher() -> None:

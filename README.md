@@ -23,7 +23,7 @@ This project was developed without access to Termux or an Android device — see
 curl -sL https://raw.githubusercontent.com/arinadi/dexpro/master/install.sh | bash
 ```
 
-`install.sh` bootstraps git/python, checks out the repo, and hands off to `install.py`, which installs the Termux packages the native session needs (`x11-repo`, `termux-x11-nightly`, `virglrenderer`, `pulseaudio-utils`, `dbus`, `xfce4`, `xfce4-terminal`) and links the `dexpro` launcher onto `PATH`.
+`install.sh` bootstraps git/python, checks out the repo, and hands off to `install.py`, which installs the Termux packages the native session needs (`x11-repo`, `termux-x11-nightly`, `virglrenderer-android`, `pulseaudio-utils`, `dbus`, `xfce4`, `xfce4-terminal`) and links the `dexpro` launcher onto `PATH`.
 
 ## Usage
 
