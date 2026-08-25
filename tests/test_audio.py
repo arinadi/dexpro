@@ -63,11 +63,62 @@ def test_set_enabled_round_trips() -> None:
     check(audio.is_enabled() is False, "set_enabled(False) must persist and clear the key")
 
 
+def test_sinks_returns_empty_list_when_pactl_missing() -> None:
+    # No pactl on this Windows dev machine — must fail gracefully to
+    # "no sinks", not raise.
+    check(audio.sinks() == [], "expected an empty list when pactl is unavailable")
+
+
+def test_write_test_tone_produces_a_real_wav_file() -> None:
+    # Pure stdlib (wave/math/struct) — this genuinely works without any
+    # real audio hardware, so it's tested for real, not just "doesn't
+    # crash".
+    import wave
+
+    tmp = tempfile.mkdtemp(prefix="dexpro-audio-test-")
+    path = os.path.join(tmp, "tone.wav")
+    try:
+        ok = audio.write_test_tone(path, seconds=0.1)
+        check(ok, "write_test_tone should succeed with pure-stdlib wave/math/struct")
+        check(os.path.exists(path), "the wav file must actually exist")
+        with wave.open(path, "rb") as f:
+            check(f.getnchannels() == 1, "expected mono")
+            check(f.getframerate() == 16000, "expected the documented sample rate")
+            check(f.getnframes() > 0, "expected non-empty audio frames")
+    finally:
+        os.remove(path)
+        os.rmdir(tmp)
+
+
+@_isolated_config
+def test_test_reports_disabled_when_audio_off() -> None:
+    messages: list[str] = []
+    result = audio.test(log=messages.append)
+    check(result is False, "test() must refuse to run when audio is disabled")
+    check(any("disabled in Settings" in m for m in messages), f"got {messages!r}")
+
+
+@_isolated_config
+def test_test_never_raises_when_enabled_but_no_real_audio() -> None:
+    # No real pulseaudio/paplay on this dev machine — the whole point of
+    # this test is that test() fails gracefully through every stage
+    # rather than raising partway through.
+    audio.set_enabled(True)
+    messages: list[str] = []
+    result = audio.test(log=messages.append)
+    check(isinstance(result, bool), "must return a definite bool, never raise")
+    check(result is False, "cannot actually succeed without real audio hardware")
+
+
 TESTS = [
     test_is_running_returns_a_bool,
     test_ensure_server_never_raises,
     test_is_enabled_defaults_to_off,
     test_set_enabled_round_trips,
+    test_sinks_returns_empty_list_when_pactl_missing,
+    test_write_test_tone_produces_a_real_wav_file,
+    test_test_reports_disabled_when_audio_off,
+    test_test_never_raises_when_enabled_but_no_real_audio,
 ]
 
 if __name__ == "__main__":

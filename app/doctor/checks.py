@@ -75,8 +75,22 @@ def check_gpu_profile() -> Issue:
             f"persisted profile '{preset.name}' is Adreno-only but "
             f"detected vendor is '{vendor}'"
         )
-        return Issue("GPU renderer", False, detail, fix=lambda log: bool(gpu.bench(log)))
+        return Issue("GPU renderer", False, detail, fix=_fix_gpu_profile)
     return Issue("GPU renderer", True, f"using '{preset.name}'")
+
+
+def _fix_gpu_profile(log: Log) -> bool:
+    # bool(gpu.bench(log)) alone never called save_profile() — the
+    # benchmark ran for real but its result was discarded, so this
+    # "fix" never actually changed the persisted profile it was meant
+    # to correct. Found while wiring the same gpu.bench() call into a
+    # manual Settings "Bench" button.
+    result = gpu.bench(log)
+    if result is None:
+        return False
+    preset, score = result
+    gpu.save_profile(preset, score)
+    return True
 
 
 def check_audio() -> Issue:

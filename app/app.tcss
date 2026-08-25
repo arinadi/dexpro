@@ -157,6 +157,20 @@ SettingsScreen Select {
     margin: 0 2;
 }
 
+/* GPU/Audio's Selects each share a row with an action button, so they
+   need to give up their usual full-width margin/sizing to leave room. */
+SettingsScreen #settings-gpu,
+SettingsScreen #settings-audio {
+    width: 1fr;
+    margin: 0 0 0 2;
+}
+
+SettingsScreen #bench-gpu,
+SettingsScreen #test-audio {
+    width: 10;
+    margin: 0 2 0 1;
+}
+
 #settings-font-path {
     width: 1fr;
     margin: 0 0 0 2;

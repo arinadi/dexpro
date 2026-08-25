@@ -51,6 +51,34 @@ def _isolated_config(test):
 
 
 @_isolated_config
+def test_fix_gpu_profile_actually_saves_the_result() -> None:
+    # Regression test for a real bug: the old fix=lambda log:
+    # bool(gpu.bench(log)) ran the benchmark for real but discarded its
+    # result — gpu.save_profile() was never called, so the "fix" never
+    # actually changed the persisted profile it was meant to correct.
+    from unittest import mock
+
+    from app.native import gpu
+
+    zink = gpu.preset_by_name("zink")
+    with mock.patch("app.doctor.checks.gpu.bench", return_value=(zink, 1234)):
+        ok = checks._fix_gpu_profile(log=lambda _msg: None)
+
+    check(ok is True, "fix should report success when bench() finds a winner")
+    check(gpu.load_profile() == zink, "the benchmarked preset must actually be persisted")
+
+
+@_isolated_config
+def test_fix_gpu_profile_fails_gracefully_when_bench_finds_nothing() -> None:
+    from unittest import mock
+
+    with mock.patch("app.doctor.checks.gpu.bench", return_value=None):
+        ok = checks._fix_gpu_profile(log=lambda _msg: None)
+
+    check(ok is False, "must report failure, not raise, when nothing scored")
+
+
+@_isolated_config
 def test_check_audio_is_ok_when_disabled_by_default() -> None:
     # Off is the deliberate default (dextop's own — battery/CPU cost),
     # not a fault: a fresh install must not show a red "not ok" for the
@@ -197,6 +225,8 @@ def test_run_all_checks_includes_native_and_per_container() -> None:
 TESTS = [
     test_check_x11_socket_reports_not_ok_when_absent,
     test_check_gpu_profile_defaults_to_software_and_is_ok,
+    test_fix_gpu_profile_actually_saves_the_result,
+    test_fix_gpu_profile_fails_gracefully_when_bench_finds_nothing,
     test_check_audio_is_ok_when_disabled_by_default,
     test_check_audio_is_a_read_only_probe_when_enabled,
     test_check_wakelock_binary_reports_a_definite_bool,

@@ -167,6 +167,32 @@ async def test_apply_font_pushes_action_screen_when_path_given() -> None:
         check(isinstance(app.screen, ActionScreen), f"got {app.screen!r}")
 
 
+async def test_bench_gpu_button_pushes_action_screen() -> None:
+    from app.screens.common import ActionScreen
+
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        await pilot.click("#settings")
+        await pilot.pause()
+        await pilot.click("#bench-gpu")
+        await pilot.pause()
+        check(isinstance(app.screen, ActionScreen), f"got {app.screen!r}")
+
+
+async def test_test_audio_button_pushes_action_screen() -> None:
+    from app.screens.common import ActionScreen
+
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        await pilot.click("#settings")
+        await pilot.pause()
+        await pilot.click("#test-audio")
+        await pilot.pause()
+        check(isinstance(app.screen, ActionScreen), f"got {app.screen!r}")
+
+
 def test_uninstall_removes_launcher_and_config() -> None:
     from app.screens.settings import _uninstall
 
@@ -221,6 +247,8 @@ TESTS = [
     test_changing_audio_select_persists_immediately,
     test_apply_font_warns_when_path_empty,
     test_apply_font_pushes_action_screen_when_path_given,
+    test_bench_gpu_button_pushes_action_screen,
+    test_test_audio_button_pushes_action_screen,
     test_uninstall_removes_launcher_and_config,
     test_uninstall_is_idempotent_when_already_gone,
 ]

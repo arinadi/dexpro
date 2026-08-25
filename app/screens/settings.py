@@ -79,17 +79,21 @@ class SettingsScreen(Screen):
         yield Header()
         with Vertical(id="settings-form"):
             yield Label("GPU profile")
-            yield Select(
-                [(name.replace("_", " ").title(), name) for name in _gpu_preset_names()],
-                id="settings-gpu",
-                allow_blank=False,
-            )
+            with Horizontal():
+                yield Select(
+                    [(name.replace("_", " ").title(), name) for name in _gpu_preset_names()],
+                    id="settings-gpu",
+                    allow_blank=False,
+                )
+                yield Button("Bench", id="bench-gpu")
             yield Label("Storage link")
             yield Select(STORAGE_LINK_OPTIONS, id="settings-storage", allow_blank=False)
             yield Label("termux-x11 rendering")
             yield Select(X11_DRAW_PATH_OPTIONS, id="settings-x11", allow_blank=False)
             yield Label("Audio")
-            yield Select(AUDIO_OPTIONS, id="settings-audio", allow_blank=False)
+            with Horizontal():
+                yield Select(AUDIO_OPTIONS, id="settings-audio", allow_blank=False)
+                yield Button("Test", id="test-audio")
             yield Label("Termux font (path to a .ttf already on-device)")
             with Horizontal():
                 yield Input(placeholder="/sdcard/Fonts/MyFont.ttf", id="settings-font-path")
@@ -178,6 +182,26 @@ class SettingsScreen(Screen):
             await self._confirm_uninstall()
         elif event.button.id == "apply-font":
             self._apply_font()
+        elif event.button.id == "test-audio":
+            self._test_audio()
+        elif event.button.id == "bench-gpu":
+            self._bench_gpu()
+
+    def _bench_gpu(self) -> None:
+        def _run(logger):
+            result = gpu.bench(logger)
+            if result is None:
+                logger.write("[red]No candidate preset produced a score.[/red]")
+                return False
+            preset, score = result
+            gpu.save_profile(preset, score)
+            logger.write(f"[bold green]Best: {preset.name} (score {score})[/bold green] — saved.")
+            return True
+
+        self.app.push_screen(ActionScreen("Benchmarking GPU", _run))
+
+    def _test_audio(self) -> None:
+        self.app.push_screen(ActionScreen("Testing audio", audio.test))
 
     def _apply_font(self) -> None:
         path = self.query_one("#settings-font-path", Input).value.strip()
