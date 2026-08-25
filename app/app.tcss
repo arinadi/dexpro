@@ -53,8 +53,9 @@ Button#back {
     margin: 0 2 1 2;
 }
 
-/* ActionScreen's Back(+Restart) row — Button#back above still applies
-   when it's alone; this splits the width when Restart is also present. */
+/* ActionScreen's Copy/Back(+Restart) row — Button#back above still
+   applies when it's alone; this splits the width when the others are
+   also present. */
 #action-buttons {
     width: 100%;
     height: auto;
@@ -65,6 +66,11 @@ Button#back {
     width: 1fr;
     height: 3;
     margin-right: 1;
+}
+
+/* The copy button is a single letter, so it does not need an equal share. */
+#action-buttons Button#copy {
+    width: 7;
 }
 
 #box-actions {

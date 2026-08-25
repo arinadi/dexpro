@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 
@@ -14,6 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from support import check, run, wait_for_rows
 
 from app.app import DexproApp
+from app.doctor.checks import Issue
+from app.screens.common import ActionScreen
 from app.screens.doctor import DoctorScreen
 from app.screens.main_screen import MainScreen
 
@@ -47,9 +50,55 @@ async def test_fix_button_disabled_state_matches_fixable_issues() -> None:
         check(disabled == (not fixable), msg)
 
 
+async def test_fix_isolates_one_failing_issue_from_the_rest() -> None:
+    # Regression test for a real report: Fix looked "stuck, no log
+    # coming out" — a single fix that raised or ran long left no
+    # confirmation of progress, and (before this fix) an exception from
+    # one issue's fix() would silently abort the whole batch via
+    # ActionScreen's outer catch, with no sign anything after it ran.
+    from textual.widgets import Button
+
+    calls: list[str] = []
+
+    def bad_fix() -> bool:
+        raise RuntimeError("boom")
+
+    def good_fix() -> bool:
+        calls.append("good")
+        return True
+
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        await pilot.click("#doctor")
+        await pilot.pause()
+        await wait_for_rows(pilot, app, "#doctor-table")
+
+        app.screen._issues = [
+            Issue("Bad check", False, "broken", fix=bad_fix),
+            Issue("Good check", False, "broken too", fix=good_fix),
+        ]
+        app.screen._run_fixes()
+        await pilot.pause()
+
+        check(isinstance(app.screen, ActionScreen), f"got {app.screen!r}")
+        action_screen = app.screen
+        for _ in range(80):
+            await asyncio.sleep(0.1)
+            if not action_screen.query_one("#back", Button).disabled:
+                break
+        await pilot.pause()
+
+        check("good" in calls, "the second fix must still run despite the first raising")
+        text = "\n".join(action_screen._lines)
+        check("Bad check raised" in text, f"the raise should be logged: {text!r}")
+        check("Good check: done" in text, f"the success should be logged: {text!r}")
+
+
 TESTS = [
     test_doctor_button_opens_doctor_screen_with_rows,
     test_fix_button_disabled_state_matches_fixable_issues,
+    test_fix_isolates_one_failing_issue_from_the_rest,
 ]
 
 if __name__ == "__main__":

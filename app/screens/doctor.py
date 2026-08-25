@@ -65,8 +65,29 @@ class DoctorScreen(Screen):
         fixable = [i for i in self._issues if not i.ok and i.fix is not None]
 
         def _run(logger):
-            for issue in fixable:
-                logger.write(f"fixing: {issue.name}")
-                issue.fix()
+            # Reported live as "stuck, no log": a single "fixing: X" line
+            # then nothing until the whole batch finished, since some
+            # fixes (pkg install, gpu.bench()) genuinely take a while and
+            # nothing confirmed each one actually completed. Explicit
+            # before/after lines per item — plus isolating each fix's own
+            # exception so one failure doesn't silently abort the rest of
+            # the batch (the ActionScreen-level catch would otherwise stop
+            # the whole loop on the first raise, with no indication which
+            # fix or that anything after it was skipped).
+            total = len(fixable)
+            logger.write(f"{total} issue(s) to fix")
+            for index, issue in enumerate(fixable, start=1):
+                logger.write(f"[{index}/{total}] fixing: {issue.name}...")
+                try:
+                    ok = issue.fix()
+                except Exception as exc:  # noqa: BLE001 — one bad fix must not stop the rest
+                    logger.write(f"[{index}/{total}] [red]{issue.name} raised: {exc}[/red]")
+                    continue
+                if ok:
+                    logger.write(f"[{index}/{total}] [green]{issue.name}: done[/green]")
+                else:
+                    logger.write(f"[{index}/{total}] [red]{issue.name}: failed[/red]")
+            logger.write("")
+            logger.write("[bold]All fixes attempted.[/bold] Refresh to see the result.")
 
         self.app.push_screen(ActionScreen("Fixing issues", _run))

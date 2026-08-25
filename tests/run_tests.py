@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import support
+from test_action_screen import TESTS as ACTION_SCREEN_TESTS
 from test_android_bridge import TESTS as ANDROID_BRIDGE_TESTS
 from test_android_storage import TESTS as ANDROID_STORAGE_TESTS
 from test_audio import TESTS as AUDIO_TESTS
@@ -72,6 +73,7 @@ ALL_TESTS = [
     *BACKUP_TESTS,
     *ANDROID_STORAGE_TESTS,
     *ANDROID_BRIDGE_TESTS,
+    *ACTION_SCREEN_TESTS,
     *MAIN_SCREEN_TESTS,
     *BOX_MANAGER_SCREEN_TESTS,
     *EXPORT_SCREEN_TESTS,
