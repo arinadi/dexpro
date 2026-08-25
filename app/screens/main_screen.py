@@ -128,11 +128,15 @@ class MainScreen(Screen):
             self.app.push_screen(TermuxStoreScreen())
 
     def _start(self, logger) -> None:
+        # logger itself, not self.app.lifecycle's own default: Lifecycle's
+        # own log previously always went to Textual's internal devtools
+        # log, not this visible ActionScreen — every audio/x11/wakelock
+        # diagnostic this session ever added was invisible here.
         logger.write("starting native session...")
-        self.app.lifecycle.start()
+        self.app.lifecycle.start(logger)
         logger.write("[green]session started[/green]")
 
     def _stop(self, logger) -> None:
         logger.write("stopping native session...")
-        self.app.lifecycle.stop()
+        self.app.lifecycle.stop(logger)
         logger.write("[green]session stopped[/green]")

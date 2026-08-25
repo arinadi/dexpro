@@ -64,7 +64,7 @@ def test_link_storage_never_raises_without_storage_link_set() -> None:
     # No /storage, no /proc/mounts entries under it on this Windows dev
     # machine — every real call inside _link_storage() must fail
     # gracefully, not raise.
-    Lifecycle()._link_storage()
+    Lifecycle()._link_storage(lambda _msg: None)
 
 
 @_isolated
@@ -75,10 +75,11 @@ def test_link_storage_respects_unified_home_opt_in() -> None:
     # dir when the setting is off, then does attempt the linked-mount
     # lookup (which itself no-ops gracefully with no such mount) when on.
     config.unset(STORAGE_LINK_KEY)
-    Lifecycle()._link_storage()  # off: must not raise
+    Lifecycle()._link_storage(lambda _msg: None)  # off: must not raise
 
     config.set_value(STORAGE_LINK_KEY, "unified-home")
-    Lifecycle()._link_storage()  # on, but no "Home"-labeled mount exists: must not raise
+    # on, but no "Home"-labeled mount exists: must not raise
+    Lifecycle()._link_storage(lambda _msg: None)
 
 
 @_isolated
@@ -89,7 +90,7 @@ def test_ensure_audio_skips_pulseaudio_when_disabled_by_default() -> None:
     # fresh Lifecycle must not even try, and must say why in the log.
     messages: list[str] = []
     lifecycle = Lifecycle(log=messages.append)
-    result = lifecycle._ensure_audio()
+    result = lifecycle._ensure_audio(messages.append)
     check(result is False, "audio must be reported unavailable when disabled")
     check(
         any("disabled in Settings" in m for m in messages),
@@ -102,7 +103,7 @@ def test_ensure_audio_attempts_pulseaudio_when_enabled() -> None:
     audio.set_enabled(True)
     messages: list[str] = []
     lifecycle = Lifecycle(log=messages.append)
-    result = lifecycle._ensure_audio()
+    result = lifecycle._ensure_audio(messages.append)
     # No real pulseaudio on this Windows dev machine, so this can't
     # succeed — the contract being tested is that it actually tries
     # (never silently skips) rather than the outcome.
@@ -123,7 +124,7 @@ def test_ensure_unified_home_backup_creates_a_real_archive_once() -> None:
     messages: list[str] = []
     lifecycle = Lifecycle(log=messages.append)
 
-    ok = lifecycle._ensure_unified_home_backup()
+    ok = lifecycle._ensure_unified_home_backup(messages.append)
     check(ok, "the first-ever backup attempt should succeed with real tar available")
     check(
         config.get("UNIFIED_HOME_BACKUP_DONE") is not None,
@@ -138,10 +139,11 @@ def test_ensure_unified_home_backup_only_runs_once() -> None:
     from app import const as const_mod
 
     lifecycle = Lifecycle(log=lambda _msg: None)
-    check(lifecycle._ensure_unified_home_backup(), "first call should back up and succeed")
+    noop = lambda _msg: None  # noqa: E731
+    check(lifecycle._ensure_unified_home_backup(noop), "first call should back up and succeed")
     first_run = set(os.listdir(const_mod.BACKUP_DIR))
 
-    check(lifecycle._ensure_unified_home_backup(), "second call should short-circuit to True")
+    check(lifecycle._ensure_unified_home_backup(noop), "second call should short-circuit to True")
     second_run = set(os.listdir(const_mod.BACKUP_DIR))
     check(first_run == second_run, "a second call must not create another archive")
 
@@ -158,7 +160,7 @@ def test_link_storage_skips_unified_home_when_backup_would_fail() -> None:
     lifecycle = Lifecycle(log=messages.append)
 
     with mock.patch("app.native.lifecycle.backup.backup_native_home", return_value=None):
-        lifecycle._link_storage()
+        lifecycle._link_storage(messages.append)
 
     check(
         any("skipping unified-home linking" in m for m in messages),
@@ -166,6 +168,34 @@ def test_link_storage_skips_unified_home_when_backup_would_fail() -> None:
     )
     no_false_success = "must not record success that didn't happen"
     check(config.get("UNIFIED_HOME_BACKUP_DONE") is None, no_false_success)
+
+
+def test_start_and_stop_use_the_passed_in_log_not_only_the_default() -> None:
+    # Real bug: Lifecycle's own self.log went to Textual's internal
+    # devtools log, never the visible ActionScreen the user watches —
+    # every diagnostic this class ever produced was invisible there.
+    # start()/stop() must actually use whatever logger is passed in.
+    messages: list[str] = []
+    lifecycle = Lifecycle(log=lambda _msg: None)  # the "wrong" default
+    lifecycle.stop(messages.append)  # no real session running: still logs
+    check(len(messages) > 0, "stop() must log through the passed-in logger, not just self.log")
+
+
+def test_wait_for_session_reports_false_when_process_never_starts() -> None:
+    # No real bash/xfce4-session process was ever assigned — is_running()
+    # is always False, so this must give up and report failure rather
+    # than hang or raise. Patches the module's own time.sleep so this
+    # doesn't actually wait the full real timeout.
+    from unittest import mock
+
+    from app.native import lifecycle as lifecycle_mod
+
+    messages: list[str] = []
+    lc = Lifecycle(log=messages.append)
+    with mock.patch.object(lifecycle_mod.time, "sleep"):
+        with mock.patch.object(lifecycle_mod, "_SESSION_STARTUP_TIMEOUT", 2.0):
+            result = lc._wait_for_session(messages.append)
+    check(result is False, "must report failure when the session never comes up")
 
 
 TESTS = [
@@ -176,6 +206,8 @@ TESTS = [
     test_ensure_unified_home_backup_creates_a_real_archive_once,
     test_ensure_unified_home_backup_only_runs_once,
     test_link_storage_skips_unified_home_when_backup_would_fail,
+    test_start_and_stop_use_the_passed_in_log_not_only_the_default,
+    test_wait_for_session_reports_false_when_process_never_starts,
 ]
 
 if __name__ == "__main__":

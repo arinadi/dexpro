@@ -146,6 +146,22 @@ def ensure_server(log: Log | None = None) -> bool:
     return is_running()
 
 
+def stop_server(log: Log | None = None) -> None:
+    """Matches XLabs' stop_desktop(): `pulseaudio --kill` is the
+    supported clean shutdown (unloads its own modules), rather than
+    leaving the daemon — or a stale socket after it dies on its own —
+    around into the next session. A no-op, not an error, when nothing
+    is running."""
+    if not is_running():
+        return
+    if log:
+        log("$ pulseaudio --kill")
+    try:
+        subprocess.run(["pulseaudio", "--kill"], capture_output=True, timeout=10, env=_pulse_env())
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+
 # ── Test tone (ported from XLabs' audio.py test()) ────────────
 
 

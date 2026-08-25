@@ -102,7 +102,17 @@ def check_audio() -> Issue:
         # time on a fresh install.
         return Issue("Audio", True, "disabled in Settings (default)")
     running = audio.is_running()
-    detail = "" if running else "enabled in Settings but PulseAudio isn't running"
+    detail = (
+        ""
+        if running
+        else (
+            "enabled in Settings but PulseAudio isn't running — if it worked "
+            "right after Start Desktop but died on its own, Android's "
+            "phantom process killer (12+) is a common cause (adb: "
+            "settings_enable_monitor_phantom_procs, or Developer Options). "
+            "Fix will restart it either way."
+        )
+    )
     return Issue("Audio", running, detail, fix=lambda log: audio.ensure_server(log))
 
 

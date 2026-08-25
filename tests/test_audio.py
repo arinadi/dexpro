@@ -79,6 +79,34 @@ def test_set_enabled_round_trips() -> None:
     check(audio.is_enabled() is False, "set_enabled(False) must persist and clear the key")
 
 
+def test_stop_server_is_a_noop_when_nothing_is_running() -> None:
+    # No real pulseaudio on this Windows dev machine — is_running() is
+    # already False, so stop_server() must return without raising and
+    # without attempting a pointless --kill.
+    audio.stop_server(log=lambda _msg: None)
+
+
+def test_stop_server_kills_and_logs_when_running() -> None:
+    # Matches XLabs' stop_desktop(): `pulseaudio --kill` is the clean
+    # shutdown path, called whenever a daemon is actually up.
+    from unittest import mock
+
+    messages: list[str] = []
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        import subprocess as sp
+
+        calls.append(cmd)
+        return sp.CompletedProcess(cmd, 0)
+
+    with mock.patch.object(audio, "is_running", return_value=True):
+        with mock.patch.object(audio.subprocess, "run", side_effect=fake_run):
+            audio.stop_server(log=messages.append)
+    check(calls == [["pulseaudio", "--kill"]], f"got {calls!r}")
+    check(any("pulseaudio --kill" in m for m in messages), f"got {messages!r}")
+
+
 def test_pulse_env_pins_xdg_runtime_dir_to_the_shared_constant() -> None:
     # Regression test for a real reported bug: "Test sudah on dan bunyi
     # tapi di XFCE masih belum keluar suara" — every PulseAudio-facing
@@ -142,6 +170,8 @@ TESTS = [
     test_is_running_returns_a_bool,
     test_ensure_server_never_raises,
     test_ensure_server_delegates_install_to_native_packages,
+    test_stop_server_is_a_noop_when_nothing_is_running,
+    test_stop_server_kills_and_logs_when_running,
     test_pulse_env_pins_xdg_runtime_dir_to_the_shared_constant,
     test_is_enabled_defaults_to_off,
     test_set_enabled_round_trips,
