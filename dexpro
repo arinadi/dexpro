@@ -2,8 +2,10 @@
 # dexpro launcher — resolves the interpreter and hands off to the app package.
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$REPO_DIR"
+# $PREFIX/bin/dexpro is a symlink to this script; readlink -f resolves it
+# back to the repo so this works when invoked as `dexpro` from PATH, not
+# just when run directly from the repo dir.
+REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
 if command -v python3 >/dev/null 2>&1; then
     PY=python3
@@ -14,4 +16,4 @@ else
     exit 1
 fi
 
-exec "$PY" -m app.app "$@"
+exec env PYTHONPATH="$REPO_DIR" "$PY" -m app.app "$@"
