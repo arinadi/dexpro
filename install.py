@@ -23,11 +23,13 @@ REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 # dbus, ...) alongside the bad one. Mirrors XLabs' install_termux_packages().
 # virglrenderer-android (not bare "virglrenderer") is the package that
 # actually provides virgl_test_server_android, which app/native/gpu.py's
-# "virgl" preset requires.
+# "virgl" preset requires. "pulseaudio" (not Debian-style "pulseaudio-utils"
+# — Termux doesn't split them) provides both the daemon and pactl, which
+# app/native/audio.py needs.
 PACKAGE_GROUPS = {
     "Termux:X11": ["termux-x11-nightly"],
     "graphics": ["virglrenderer-android"],
-    "audio/dbus": ["pulseaudio-utils", "dbus"],
+    "audio/dbus": ["pulseaudio", "dbus"],
     "desktop": ["xfce4", "xfce4-terminal"],
 }
 

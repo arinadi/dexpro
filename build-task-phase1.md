@@ -13,7 +13,7 @@ PRD refs: G1, G6, §5.1, §7.1, §7.2, §7.4, §10 (addendum)
 
 - Termux app — GitHub Releases or F-Droid (note: these are separately signed; pick one and stay on it, don't mix update channels).
 - **Termux:X11** app — GitHub Releases `nightly` tag only. Two APK variants: `-universal-debug.apk` (standard) vs `-universal-sharedUid-debug.apk` (avoids CPU throttling, but requires a Termux build signed to match — GitHub build, not F-Droid's differently-signed build). **Pick the matching pair and document it** — this is a real, easy-to-hit mismatch pitfall, not a hypothetical.
-- Termux packages: `x11-repo` (enables the repo), then `termux-x11-nightly`, `virglrenderer`/`virglrenderer-android`, `xorg-server-xvfb` (fallback display server), `pulseaudio-utils`, `dbus`, plus the chosen WM/DE package set (§ Task 8).
+- Termux packages: `x11-repo` (enables the repo), then `termux-x11-nightly`, `virglrenderer-android`, `xorg-server-xvfb` (fallback display server), `pulseaudio`, `dbus`, plus the chosen WM/DE package set (§ Task 8).
 
 ## Spikes to resolve before/during implementation (do not assume — verify on-device)
 
@@ -127,5 +127,5 @@ First actual Tier 3 (real device) data point for this project — everything bef
 
 - `install.py`'s single-batch `pkg install -y <6 packages>` failed with "Unable to locate package" and installed nothing (not even the packages that would have resolved fine). Root cause: the package list included bare `virglrenderer`, which is not a valid Termux package name — `app/native/gpu.py`'s `virgl` preset already assumed the correct name (`virgl_test_server_android` binary, shipped by package `virglrenderer-android`), confirmed by cross-referencing XLabs' own `install.py` (`D:\XLabs\install.py`), which uses `virglrenderer-android` and documents the exact same batch-failure trap: "One unavailable name fails the whole line and takes every other package in it down too."
 - Fix applied: renamed to `virglrenderer-android`, and restructured `install_packages()` into labeled groups with per-package retry on group failure (same pattern XLabs uses), so one bad/unavailable name can no longer take down unrelated packages in the same batch.
-- Not yet re-confirmed on the real device (only Tier 1: ruff + `tests/run_tests.py`, both pass) — next real-device install run should confirm the corrected package list resolves.
+- Re-run on the real device confirmed the group-retry restructure works as intended (`Termux:X11` and `graphics` groups installed cleanly) but surfaced a second bad name: `pulseaudio-utils` — Termux doesn't split PulseAudio into a separate `-utils` package the way Debian does; the single `pulseaudio` package (matching XLabs) provides both the daemon and `pactl`, which `app/native/audio.py` needs. Fixed; not yet re-confirmed on-device.
 - A/B bench numbers recorded against a full-proot reference session (even if the improvement threshold itself isn't fixed yet — PRD §4 leaves the exact number open until a baseline exists).
