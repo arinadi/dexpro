@@ -33,8 +33,12 @@ async def test_settings_button_opens_settings_screen() -> None:
         check(isinstance(app.screen, MainScreen), f"got {app.screen!r}")
 
 
-async def test_save_persists_a_setting_to_config() -> None:
-    from textual.widgets import Input
+async def test_changing_gpu_select_persists_immediately() -> None:
+    # No Save button any more — each Select saves on change, matching
+    # XLabs' pattern (and closing the "Settings kosong, tidak ada select
+    # value" gap: previously these were free-text Inputs that always
+    # rendered empty since nothing had ever been typed into them).
+    from textual.widgets import Select
 
     original = const.CONFIG_FILE
     fd, path = tempfile.mkstemp(suffix=".env")
@@ -47,18 +51,60 @@ async def test_save_persists_a_setting_to_config() -> None:
             await pilot.pause()
             await pilot.click("#settings")
             await pilot.pause()
-            gpu_input = app.screen.query_one("#setting-GPU_PROFILE", Input)
-            gpu_input.value = "zink"
-            await pilot.click("#save")
+            gpu_select = app.screen.query_one("#settings-gpu", Select)
+            gpu_select.value = "zink"
             await pilot.pause()
 
         from app import config
 
-        check(config.get("GPU_PROFILE") == "zink", "setting wasn't persisted by Save")
+        check(config.get("GPU_PROFILE") == "zink", "GPU Select change wasn't persisted")
     finally:
         const.CONFIG_FILE = original
         if os.path.exists(path):
             os.remove(path)
+
+
+async def test_changing_storage_link_select_persists_immediately() -> None:
+    from textual.widgets import Select
+
+    original = const.CONFIG_FILE
+    fd, path = tempfile.mkstemp(suffix=".env")
+    os.close(fd)
+    os.remove(path)
+    const.CONFIG_FILE = path
+    try:
+        app = DexproApp()
+        async with app.run_test(size=(80, 40)) as pilot:
+            await pilot.pause()
+            await pilot.click("#settings")
+            await pilot.pause()
+            storage_select = app.screen.query_one("#settings-storage", Select)
+            storage_select.value = "unified-home"
+            await pilot.pause()
+
+        from app import config
+
+        check(config.get("STORAGE_LINK") == "unified-home", "Storage Select change not persisted")
+    finally:
+        const.CONFIG_FILE = original
+        if os.path.exists(path):
+            os.remove(path)
+
+
+async def test_settings_selects_show_real_options_not_empty() -> None:
+    # The literal complaint this fixes: dropdowns must actually list
+    # choices, not render blank with nothing to pick.
+    from textual.widgets import Select
+
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        await pilot.click("#settings")
+        await pilot.pause()
+        for widget_id in ("#settings-gpu", "#settings-storage", "#settings-x11"):
+            select = app.screen.query_one(widget_id, Select)
+            check(len(select._options) > 0, f"{widget_id} has no options")
+            check(select.value is not None, f"{widget_id} has no value selected")
 
 
 def test_uninstall_removes_launcher_and_config() -> None:
@@ -109,7 +155,9 @@ def test_uninstall_is_idempotent_when_already_gone() -> None:
 
 TESTS = [
     test_settings_button_opens_settings_screen,
-    test_save_persists_a_setting_to_config,
+    test_changing_gpu_select_persists_immediately,
+    test_changing_storage_link_select_persists_immediately,
+    test_settings_selects_show_real_options_not_empty,
     test_uninstall_removes_launcher_and_config,
     test_uninstall_is_idempotent_when_already_gone,
 ]

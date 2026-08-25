@@ -90,7 +90,7 @@ class ActionScreen(Screen):
             with Horizontal(id="action-buttons"):
                 if self._offer_restart:
                     yield Button("Restart", id="restart", variant="success", disabled=True)
-                yield Button("Back", id="back", variant="primary", disabled=True)
+                yield Button("Back", id="back", disabled=True)
 
     def on_mount(self) -> None:
         if self._offer_restart:

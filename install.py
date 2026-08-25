@@ -67,7 +67,11 @@ def install_libs() -> None:
 
 def install_packages() -> None:
     run(["pkg", "update", "-y"])
-    run(["pkg", "install", "-y", "x11-repo"])
+    # x11-repo for the desktop packages below; tur-repo (Termux User
+    # Repository) so the in-app Termux Store has a community package
+    # source available out of the box, matching XLabs' own
+    # install_termux_packages(), which enables both together.
+    run(["pkg", "install", "-y", "x11-repo", "tur-repo"])
     run(["pkg", "update", "-y"])
 
     for label, packages in PACKAGE_GROUPS.items():

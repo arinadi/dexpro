@@ -21,6 +21,21 @@ Log = Callable[[str], None]
 DISPLAY = ":1"
 _DISPLAY_NUM = 1
 
+# Settings screen key + option values, matching XLabs' DRAW_PATH_OPTIONS
+# exactly (Settings previously listed these as free text with nothing
+# ever reading the key — this is what actually wires it to termux-x11).
+X11_FLAGS_KEY = "X11_EXTRA_FLAGS"
+DRAW_PATH_FLAGS: dict[str, tuple[str, ...]] = {
+    "normal": (),
+    "legacy-drawing": ("-legacy-drawing",),
+    "force-bgra": ("-force-bgra",),
+    "legacy-drawing+force-bgra": ("-legacy-drawing", "-force-bgra"),
+}
+
+
+def draw_path_flags(value: str | None) -> list[str]:
+    return list(DRAW_PATH_FLAGS.get(value or "normal", ()))
+
 
 def socket_path() -> str:
     return os.path.join(const.TMPDIR, ".X11-unix", f"X{_DISPLAY_NUM}")

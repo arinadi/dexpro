@@ -38,10 +38,13 @@ from test_doctor_fonts import TESTS as DOCTOR_FONTS_TESTS
 from test_doctor_screen import TESTS as DOCTOR_SCREEN_TESTS
 from test_export_screen import TESTS as EXPORT_SCREEN_TESTS
 from test_gpu import TESTS as GPU_TESTS
+from test_lifecycle import TESTS as LIFECYCLE_TESTS
 from test_main_screen import TESTS as MAIN_SCREEN_TESTS
+from test_native_packages import TESTS as NATIVE_PACKAGES_TESTS
 from test_session import TESTS as SESSION_TESTS
 from test_settings_screen import TESTS as SETTINGS_SCREEN_TESTS
 from test_store_screen import TESTS as STORE_SCREEN_TESTS
+from test_termux_store_screen import TESTS as TERMUX_STORE_SCREEN_TESTS
 from test_wakelock import TESTS as WAKELOCK_TESTS
 from test_x11 import TESTS as X11_TESTS
 
@@ -54,12 +57,14 @@ ALL_TESTS = [
     *GPU_TESTS,
     *X11_TESTS,
     *SESSION_TESTS,
+    *LIFECYCLE_TESTS,
     *BOX_MANAGER_TESTS,
     *BOX_CREATE_TESTS,
     *BOX_USER_TESTS,
     *BOX_PACKAGES_TESTS,
     *BOX_EXPORT_TESTS,
     *BOX_MIRROR_TESTS,
+    *NATIVE_PACKAGES_TESTS,
     *DOCTOR_CHECKS_TESTS,
     *DOCTOR_ELECTRON_TESTS,
     *DOCTOR_DUPLICATES_TESTS,
@@ -74,6 +79,7 @@ ALL_TESTS = [
     *BACKUP_SCREEN_TESTS,
     *SETTINGS_SCREEN_TESTS,
     *STORE_SCREEN_TESTS,
+    *TERMUX_STORE_SCREEN_TESTS,
 ]
 
 

@@ -37,7 +37,7 @@ class CreateBoxScreen(Screen[None]):
             yield Input(placeholder="name", id="name")
             yield Input(placeholder="image (e.g. debian:13)", id="image", value="debian:13")
             with Horizontal():
-                yield Button("Create", id="create", variant="primary")
+                yield Button("Create", id="create")
                 yield Button("Cancel", id="cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

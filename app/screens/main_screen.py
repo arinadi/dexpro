@@ -19,6 +19,7 @@ from .box_manager import BoxManagerScreen
 from .common import ActionScreen
 from .doctor import DoctorScreen
 from .settings import SettingsScreen
+from .termux_store import TermuxStoreScreen
 
 # audit.md item 7 decisions, made explicitly rather than left unaddressed:
 # - No VNC fallback: native session stays termux-x11-only.
@@ -85,6 +86,7 @@ class MainScreen(Screen):
         "doctor": "Diagnose and repair the environment",
         "backup": "Back up or restore your native home",
         "settings": "Per-device preferences, saved to .env",
+        "termux": "Search/install Termux packages and enable community repos",
     }
 
     def on_mount(self) -> None:
@@ -101,9 +103,10 @@ class MainScreen(Screen):
                 yield Button("Update", id="update")
                 yield Button("Boxes", id="boxes")
                 yield Button("Doctor", id="doctor")
-            with Grid(classes="row2"):
+            with Grid(classes="row3"):
                 yield Button("Backup", id="backup")
                 yield Button("Settings", id="settings")
+                yield Button("Termux", id="termux")
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -121,6 +124,8 @@ class MainScreen(Screen):
             self.app.push_screen(BackupScreen())
         elif event.button.id == "settings":
             self.app.push_screen(SettingsScreen())
+        elif event.button.id == "termux":
+            self.app.push_screen(TermuxStoreScreen())
 
     def _start(self, logger) -> None:
         logger.write("starting native session...")

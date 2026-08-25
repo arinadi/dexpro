@@ -44,10 +44,25 @@ def test_start_fails_gracefully_when_binary_missing() -> None:
         check(any("not installed" in m for m in messages), "no warning logged on missing binary")
 
 
+def test_draw_path_flags_maps_each_option() -> None:
+    check(x11.draw_path_flags("normal") == [], "normal should add no flags")
+    check(x11.draw_path_flags(None) == [], "unset should default to normal (no flags)")
+    check(x11.draw_path_flags("legacy-drawing") == ["-legacy-drawing"], "legacy-drawing mapping")
+    check(x11.draw_path_flags("force-bgra") == ["-force-bgra"], "force-bgra mapping")
+    combined = x11.draw_path_flags("legacy-drawing+force-bgra")
+    check(combined == ["-legacy-drawing", "-force-bgra"], f"combined mapping wrong: {combined!r}")
+
+
+def test_draw_path_flags_unknown_value_is_safe() -> None:
+    check(x11.draw_path_flags("garbage") == [], "an unrecognized value must not raise or guess")
+
+
 TESTS = [
     test_socket_path_matches_display_number,
     test_wait_for_socket_times_out_when_absent,
     test_start_fails_gracefully_when_binary_missing,
+    test_draw_path_flags_maps_each_option,
+    test_draw_path_flags_unknown_value_is_safe,
 ]
 
 if __name__ == "__main__":

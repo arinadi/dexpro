@@ -33,7 +33,7 @@ class ExportScreen(Screen):
             with Horizontal():
                 yield Button("Export selected", id="export", variant="success")
                 yield Button("Refresh", id="refresh")
-                yield Button("Back", id="back", variant="primary")
+                yield Button("Back", id="back")
         yield Footer()
 
     def action_back(self) -> None:

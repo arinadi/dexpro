@@ -23,3 +23,6 @@ LAUNCHER_SRC = os.path.join(REPO_DIR, "dexpro")
 TMPDIR = os.environ.get("TMPDIR", os.path.join(TERMUX_PREFIX, "tmp"))
 
 BACKUP_DIR = os.path.join(TERMUX_HOME, "dexpro-backups")
+
+# dextop's own convention for where linked storage mounts live.
+MEDIA_DIR = os.path.join(TERMUX_PREFIX, "media")

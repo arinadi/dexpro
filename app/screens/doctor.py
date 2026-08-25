@@ -33,7 +33,7 @@ class DoctorScreen(Screen):
             with Horizontal():
                 yield Button("Fix", id="fix", variant="warning")
                 yield Button("Refresh", id="refresh")
-                yield Button("Back", id="back", variant="primary")
+                yield Button("Back", id="back")
         yield Footer()
 
     def action_back(self) -> None:
