@@ -11,3 +11,11 @@
     border: thick $error;
     padding: 1 2;
 }
+
+#create-box-dialog {
+    align: center middle;
+    width: 60;
+    height: 11;
+    border: thick $primary;
+    padding: 1 2;
+}

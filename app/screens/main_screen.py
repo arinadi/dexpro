@@ -8,6 +8,7 @@ from textual.containers import Grid
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header
 
+from .box_manager import BoxManagerScreen
 from .common import ActionScreen
 
 
@@ -17,6 +18,7 @@ class MainScreen(Screen):
         with Grid(id="menu"):
             yield Button("Start", id="start")
             yield Button("Stop", id="stop")
+            yield Button("Boxes", id="boxes")
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -24,6 +26,8 @@ class MainScreen(Screen):
             self.app.push_screen(ActionScreen("Starting dexpro session", self._start))
         elif event.button.id == "stop":
             self.app.push_screen(ActionScreen("Stopping dexpro session", self._stop))
+        elif event.button.id == "boxes":
+            self.app.push_screen(BoxManagerScreen())
 
     def _start(self, logger) -> None:
         logger.write("starting native session...")

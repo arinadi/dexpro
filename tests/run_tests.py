@@ -19,6 +19,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import support
 from test_audio import TESTS as AUDIO_TESTS
+from test_box_create import TESTS as BOX_CREATE_TESTS
+from test_box_manager import TESTS as BOX_MANAGER_TESTS
+from test_box_manager_screen import TESTS as BOX_MANAGER_SCREEN_TESTS
+from test_box_packages import TESTS as BOX_PACKAGES_TESTS
+from test_box_user import TESTS as BOX_USER_TESTS
 from test_config import TESTS as CONFIG_TESTS
 from test_gpu import TESTS as GPU_TESTS
 from test_main_screen import TESTS as MAIN_SCREEN_TESTS
@@ -35,7 +40,12 @@ ALL_TESTS = [
     *GPU_TESTS,
     *X11_TESTS,
     *SESSION_TESTS,
+    *BOX_MANAGER_TESTS,
+    *BOX_CREATE_TESTS,
+    *BOX_USER_TESTS,
+    *BOX_PACKAGES_TESTS,
     *MAIN_SCREEN_TESTS,
+    *BOX_MANAGER_SCREEN_TESTS,
 ]
 
 
