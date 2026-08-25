@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """dexpro installer — stage 2 (run by install.sh after the repo checkout).
 
-Installs the Termux packages the native session needs (build-task-
-phase1.md Prerequisites) and links the `dexpro` launcher onto PATH.
+Installs the Python libraries app/app.py needs, the Termux packages the
+native session needs (build-task-phase1.md Prerequisites), and links the
+`dexpro` launcher onto PATH.
 """
 
 from __future__ import annotations
@@ -42,6 +43,28 @@ def run(cmd: list[str], check: bool = True) -> int:
     return result.returncode
 
 
+def install_libs() -> None:
+    """Installs pyproject.toml's runtime dependency (textual) into Termux's
+    Python. Previously missing entirely: install.py never ran pip, so
+    `dexpro install` succeeded but `dexpro` then failed with
+    ModuleNotFoundError: No module named 'textual'. Mirrors XLabs'
+    install_libs() fallback chain — Termux's Python is externally managed
+    (PEP 668) on newer releases, so the plain install is tried first and
+    the override flags only as a fallback.
+    """
+    target = "textual>=8.2"  # keep in sync with pyproject.toml's [project.dependencies]
+    attempts = [
+        [sys.executable, "-m", "pip", "install", target, "--quiet"],
+        [sys.executable, "-m", "pip", "install", target, "--quiet", "--break-system-packages"],
+        [sys.executable, "-m", "pip", "install", target, "--quiet", "--user"],
+    ]
+    for cmd in attempts:
+        if run(cmd, check=False) == 0:
+            print(">>> textual installed")
+            return
+    raise RuntimeError("could not install textual")
+
+
 def install_packages() -> None:
     run(["pkg", "update", "-y"])
     run(["pkg", "install", "-y", "x11-repo"])
@@ -68,6 +91,7 @@ def link_launcher() -> None:
 
 
 def main() -> int:
+    install_libs()
     install_packages()
     link_launcher()
     print("")
