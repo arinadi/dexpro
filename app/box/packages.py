@@ -80,6 +80,15 @@ def search(name: str, term: str, log: Log | None = None) -> list[str]:
         return []
 
 
+def update_lists(name: str, log: Log | None = None) -> bool:
+    """Runs `apt-get update` inside the container. A fresh proot-distro
+    image ships without populated apt lists (lists_present() exists
+    because of this) — this is the action that actually populates them,
+    previously only ever described in a log message, never executed."""
+    command = ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "update"]
+    return _run(name, command, timeout=180, log=log)
+
+
 def install(name: str, packages: list[str], log: Log | None = None) -> bool:
     unsafe = [p for p in packages if not is_safe_term(p)]
     if unsafe:

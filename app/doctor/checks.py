@@ -14,15 +14,20 @@ the package is installed and marks the deeper signing-variant question
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
+import subprocess
+import sys
 from collections.abc import Callable
 from typing import NamedTuple
 
+from .. import const
 from ..box import manager as box_manager
 from ..box import packages as box_packages
 from ..box import user as box_user
 from ..native import audio, gpu, x11
+from . import duplicates, electron, fonts
 
 
 class Issue(NamedTuple):
@@ -74,12 +79,110 @@ def check_termux_x11_installed() -> Issue:
     return Issue("Termux:X11", True, detail, unknown=True)
 
 
+# --- Self-install checks ---
+#
+# Every one of these mirrors a real bug this session found by the user
+# hitting a raw traceback: a bad Termux package name, a launcher symlink
+# that resolved to the wrong directory, and a missing `pip install
+# textual` step entirely. Doctor should have caught all three as a red
+# row instead — that's the point of this section.
+
+# Keep in sync with install.py's PACKAGE_GROUPS.
+REQUIRED_TERMUX_PACKAGES: tuple[str, ...] = (
+    "termux-x11-nightly",
+    "virglrenderer-android",
+    "pulseaudio",
+    "dbus",
+    "xfce4",
+    "xfce4-terminal",
+)
+
+
+def check_textual_importable() -> Issue:
+    present = importlib.util.find_spec("textual") is not None
+    detail = "" if present else "not installed — run: pip install textual"
+    return Issue("Textual", present, detail, fix=None if present else _fix_textual)
+
+
+def _fix_textual() -> bool:
+    target = "textual>=8.2"  # keep in sync with pyproject.toml
+    attempts = [
+        [sys.executable, "-m", "pip", "install", target, "--quiet"],
+        [sys.executable, "-m", "pip", "install", target, "--quiet", "--break-system-packages"],
+        [sys.executable, "-m", "pip", "install", target, "--quiet", "--user"],
+    ]
+    for cmd in attempts:
+        try:
+            if subprocess.run(cmd, capture_output=True, timeout=120).returncode == 0:
+                return True
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            continue
+    return False
+
+
+def check_launcher_resolves() -> Issue:
+    link = os.path.join(const.PREFIX_BIN, "dexpro")
+    if not os.path.exists(link):
+        return Issue("Launcher", False, f"{link} not found", fix=_fix_launcher)
+    target = os.path.realpath(link)
+    if not os.path.isfile(os.path.join(os.path.dirname(target), "app", "app.py")):
+        detail = f"{link} resolves to {target}, which has no app/app.py next to it"
+        return Issue("Launcher", False, detail, fix=_fix_launcher)
+    return Issue("Launcher", True, f"resolves to {target}")
+
+
+def _fix_launcher() -> bool:
+    link = os.path.join(const.PREFIX_BIN, "dexpro")
+    try:
+        if os.path.islink(link) or os.path.exists(link):
+            os.remove(link)
+        os.symlink(const.LAUNCHER_SRC, link)
+        os.chmod(const.LAUNCHER_SRC, 0o755)
+        return True
+    except OSError:
+        return False
+
+
+def check_termux_packages() -> Issue:
+    missing = [p for p in REQUIRED_TERMUX_PACKAGES if not duplicates.termux_has(p)]
+    if not missing:
+        return Issue("Termux packages", True, "all present")
+    return Issue(
+        "Termux packages", False, f"missing: {', '.join(missing)}",
+        fix=lambda: _fix_missing_packages(missing),
+    )
+
+
+def _fix_missing_packages(missing: list[str]) -> bool:
+    try:
+        result = subprocess.run(
+            ["pkg", "install", "-y", *missing], capture_output=True, timeout=300
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+def check_fonts() -> Issue:
+    missing = [p for p in fonts.PACKAGES if not duplicates.termux_has(p)]
+    if not missing:
+        return Issue("Fonts", True, "installed")
+    return Issue(
+        "Fonts", False, f"missing: {', '.join(missing)}",
+        fix=lambda: fonts.install() and fonts.patch_terminal_font(),
+    )
+
+
 NATIVE_CHECKS: tuple[Callable[[], Issue], ...] = (
     check_x11_socket,
     check_gpu_profile,
     check_audio,
     check_wakelock_binary,
     check_termux_x11_installed,
+    check_textual_importable,
+    check_launcher_resolves,
+    check_termux_packages,
+    check_fonts,
 )
 
 
@@ -90,12 +193,7 @@ def run_native_checks() -> list[Issue]:
 # --- Per-container checks ---
 
 
-def container_rootfs_path(container: str) -> str | None:
-    prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
-    candidate = os.path.join(
-        prefix, "var", "lib", "proot-distro", "containers", container, "rootfs"
-    )
-    return candidate if os.path.isdir(candidate) else None
+container_rootfs_path = box_manager.container_rootfs_path
 
 
 def check_apt_lists(container: str) -> Issue:
@@ -115,10 +213,32 @@ def check_user_uid_mapped(container: str, username: str) -> Issue:
     return Issue(f"[{container}] user '{username}'", matched, detail)
 
 
+def check_duplicates(container: str) -> Issue:
+    dupes = duplicates.find_duplicates(container)
+    if not dupes:
+        return Issue(f"[{container}] duplicate tools", True, "none found")
+    return Issue(
+        f"[{container}] duplicate tools", False, f"also in Termux: {', '.join(dupes)}",
+        fix=lambda: duplicates.remove_termux_duplicates(dupes),
+    )
+
+
+def check_electron(container: str) -> Issue:
+    unpatched = electron.find_unpatched(container)
+    if not unpatched:
+        return Issue(f"[{container}] Electron apps", True, "none need patching")
+    return Issue(
+        f"[{container}] Electron apps", False, f"{len(unpatched)} need --no-sandbox",
+        fix=lambda: bool(electron.scan_and_patch(container)),
+    )
+
+
 def run_container_checks(container: str, username: str | None = None) -> list[Issue]:
     issues = [check_apt_lists(container)]
     if username:
         issues.append(check_user_uid_mapped(container, username))
+    issues.append(check_duplicates(container))
+    issues.append(check_electron(container))
     return issues
 
 

@@ -7,6 +7,9 @@ Textual's App-level on_mount/on_unmount as the persistent-service pattern.
 
 from __future__ import annotations
 
+import os
+import sys
+
 from textual.app import App
 
 from .native.lifecycle import Lifecycle
@@ -20,9 +23,18 @@ class DexproApp(App):
     def __init__(self) -> None:
         super().__init__()
         self.lifecycle = Lifecycle(log=self._log)
+        self.restart_requested = False
 
     def on_mount(self) -> None:
         self.push_screen(MainScreen())
+
+    def request_restart(self) -> None:
+        """Leave Textual first, then main() re-execs the process. Exiting
+        before re-executing matters: it restores the terminal out of the
+        alternate screen and raw mode — replacing the process from inside
+        a running app would leave the terminal wedged."""
+        self.restart_requested = True
+        self.exit()
 
     def on_unmount(self) -> None:
         # Best-effort — don't leave a session running if the TUI exits
@@ -40,7 +52,20 @@ class DexproApp(App):
 
 
 def main() -> None:
-    DexproApp().run()
+    app = DexproApp()
+    app.run()
+
+    if not app.restart_requested:
+        return
+
+    # execv, not another App().run(): the point of restarting is to load
+    # code that git just changed, and the old modules are already
+    # imported — a plain re-run() would keep serving the stale code.
+    try:
+        os.execv(sys.executable, [sys.executable, "-m", "app.app"])
+    except OSError as exc:
+        print(f"Could not restart automatically ({exc}).")
+        print("Run dexpro again to pick up the update.")
 
 
 if __name__ == "__main__":

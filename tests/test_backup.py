@@ -108,11 +108,75 @@ def test_backup_is_atomic_and_never_lists_a_failed_attempt() -> None:
     check(not tmp_leftovers, f"no temp backup file should be left behind: {tmp_leftovers!r}")
 
 
+def test_parse_backup_filename_recognizes_native() -> None:
+    result = backup.parse_backup_filename("home-20260825T130000Z.tar.gz")
+    check(result is not None, "a well-formed native filename must parse")
+    kind, created = result
+    check(kind == "native", f"expected 'native', got {kind!r}")
+    check(created == datetime(2026, 8, 25, 13, 0, 0, tzinfo=timezone.utc), f"got {created!r}")
+
+
+def test_parse_backup_filename_recognizes_container() -> None:
+    result = backup.parse_backup_filename("dev-20260825T130000Z.tar")
+    check(result is not None, "a well-formed container filename must parse")
+    kind, created = result
+    check(kind == "dev", f"expected the container name 'dev', got {kind!r}")
+    check(created == datetime(2026, 8, 25, 13, 0, 0, tzinfo=timezone.utc), f"got {created!r}")
+
+
+def test_parse_backup_filename_none_for_unrelated_file() -> None:
+    check(backup.parse_backup_filename("notes.txt") is None, "unrelated files must not parse")
+
+
+def test_human_size_formats_reasonably() -> None:
+    check(backup.human_size(500) == "500B", f"got {backup.human_size(500)!r}")
+    check(backup.human_size(2048) == "2.0KB", f"got {backup.human_size(2048)!r}")
+    five_mb = 5 * 1024 * 1024
+    check(backup.human_size(five_mb) == "5.0MB", f"got {backup.human_size(five_mb)!r}")
+
+
+@_isolated_paths
+def test_list_backups_empty_when_dir_missing() -> None:
+    check(backup.list_backups() == [], "no backup dir yet — must return an empty list, not raise")
+
+
+@_isolated_paths
+def test_list_backups_finds_and_sorts_newest_first() -> None:
+    os.makedirs(const.BACKUP_DIR, exist_ok=True)
+    for name in ("home-20260101T000000Z.tar.gz", "home-20260825T000000Z.tar.gz", "notes.txt"):
+        with open(os.path.join(const.BACKUP_DIR, name), "w", encoding="utf-8") as f:
+            f.write("x")
+
+    backups = backup.list_backups()
+    check(len(backups) == 2, f"the unrelated file must be excluded, got {backups!r}")
+    check(backups[0].name == "home-20260825T000000Z.tar.gz", "newest backup must sort first")
+
+
+@_isolated_paths
+def test_delete_backup_removes_the_file() -> None:
+    os.makedirs(const.BACKUP_DIR, exist_ok=True)
+    path = os.path.join(const.BACKUP_DIR, "home-20260825T000000Z.tar.gz")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("x")
+    [b] = backup.list_backups()
+
+    ok = backup.delete_backup(b)
+    check(ok, "deleting an existing backup should succeed")
+    check(not os.path.exists(path), "the archive file must actually be gone")
+
+
 TESTS = [
     test_timestamp_is_pure_and_sortable,
     test_backup_and_restore_round_trip,
     test_restore_moves_existing_home_aside_instead_of_overwriting,
     test_backup_is_atomic_and_never_lists_a_failed_attempt,
+    test_parse_backup_filename_recognizes_native,
+    test_parse_backup_filename_recognizes_container,
+    test_parse_backup_filename_none_for_unrelated_file,
+    test_human_size_formats_reasonably,
+    test_list_backups_empty_when_dir_missing,
+    test_list_backups_finds_and_sorts_newest_first,
+    test_delete_backup_removes_the_file,
 ]
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, Label, RichLog
 
@@ -65,19 +65,36 @@ class ActionScreen(Screen):
     output live. Back stays disabled while busy — the confirm-mid-run
     gate XLabs' Start/Stop Desktop screens rely on."""
 
-    def __init__(self, title: str, runner: Callable[[_Logger], None]) -> None:
+    BINDINGS = [("escape", "back", "Back")]
+
+    def __init__(
+        self,
+        title: str,
+        runner: Callable[[_Logger], None],
+        offer_restart: bool = False,
+    ) -> None:
         super().__init__()
         self._title = title
         self._runner = runner
+        self._offer_restart = offer_restart
         self._busy = False
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label(self._title)
-            yield RichLog(id="log")
-            yield Button("Back", id="back", disabled=True)
+            yield Label(self._title, classes="screen-title")
+            # markup=True: runner functions log Rich markup like
+            # "[green]done[/green]" for success/failure color-coding —
+            # RichLog defaults markup off, which would otherwise print
+            # the literal brackets instead of coloring the text.
+            yield RichLog(id="log", markup=True)
+            with Horizontal(id="action-buttons"):
+                if self._offer_restart:
+                    yield Button("Restart", id="restart", variant="success", disabled=True)
+                yield Button("Back", id="back", variant="primary", disabled=True)
 
     def on_mount(self) -> None:
+        if self._offer_restart:
+            self.query_one("#restart", Button).tooltip = "Relaunch dexpro on the new code"
         self.run_task()
 
     @work(thread=True, exclusive=True)
@@ -90,14 +107,29 @@ class ActionScreen(Screen):
             logger.write(f"error: {exc}")
         finally:
             self._busy = False
-            self.app.call_from_thread(self._enable_back)
+            self.app.call_from_thread(self._finish)
 
     def _append_log(self, message: str) -> None:
         self.query_one("#log", RichLog).write(message)
 
-    def _enable_back(self) -> None:
-        self.query_one("#back", Button).disabled = False
+    def _finish(self) -> None:
+        back = self.query_one("#back", Button)
+        back.disabled = False
+        if self._offer_restart:
+            restart = self.query_one("#restart", Button)
+            restart.disabled = False
+            restart.focus()
+        else:
+            back.focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "back" and not self._busy:
+        if self._busy:
+            return
+        if event.button.id == "back":
+            self.app.pop_screen()
+        elif event.button.id == "restart":
+            self.app.request_restart()
+
+    def action_back(self) -> None:
+        if not self._busy:
             self.app.pop_screen()

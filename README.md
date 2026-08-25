@@ -34,11 +34,12 @@ dexpro
 | Screen | What it does |
 |---|---|
 | Start / Stop | Native desktop session lifecycle (wake-lock → audio → GPU profile → X11 → session) |
-| Boxes | Create / enter / export / remove `dexpro-box` containers |
-| Doctor | Native + per-container health checks, with a Fix-all action |
-| Backup | Native home backup (direct `tar`); per-container backup uses `proot-distro backup` |
-| Settings | Per-device overrides (GPU profile, audio method, WM, storage link mode) |
-| Store | Curated packages + search, per selected container |
+| Update | Whole-repo `git pull --ff-only` (falls back to `fetch` + `reset --hard origin/master`), with a Restart button to relaunch on the new code |
+| Boxes | Create / enter / export / backup / remove `dexpro-box` containers |
+| Doctor | Native + per-container health checks (including dexpro's own install health — Textual importable, launcher resolves, required Termux packages present — plus duplicate-tool, Electron `--no-sandbox`, and font checks), with a Fix-all action |
+| Backup | Lists every backup (native + per-container) with Backup / Restore / Delete |
+| Settings | Per-device overrides (GPU profile, audio method, WM, storage link mode), and a working Uninstall |
+| Store | Curated packages + search, install/uninstall, Mirror picking, and adding custom repos — all per selected container |
 
 ## Architecture
 

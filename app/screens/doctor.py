@@ -20,6 +20,8 @@ def _symbol(issue: checks.Issue) -> str:
 
 
 class DoctorScreen(Screen):
+    BINDINGS = [("escape", "back", "Back")]
+
     def __init__(self) -> None:
         super().__init__()
         self._issues: list[checks.Issue] = []
@@ -29,10 +31,13 @@ class DoctorScreen(Screen):
         with Vertical():
             yield DataTable(id="doctor-table")
             with Horizontal():
-                yield Button("Fix", id="fix")
+                yield Button("Fix", id="fix", variant="warning")
                 yield Button("Refresh", id="refresh")
-                yield Button("Back", id="back")
+                yield Button("Back", id="back", variant="primary")
         yield Footer()
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
 
     def on_mount(self) -> None:
         table = self.query_one("#doctor-table", DataTable)

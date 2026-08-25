@@ -139,7 +139,7 @@ Python + Textual, structurally modeled on XLabs' screen set, re-scoped to operat
 | Package store/search | XLabs `packages.py` | Re-scoped per-container, Phase 2/5 |
 | Storage auto-linking (SD card, `/storage` detection) | dextop `termux-storage` | Ported, Phase 5 |
 | Mimetype/activity bridging to native Android apps | dextop `dextop-additions` | Ported, Phase 5 |
-| VNC fallback display server | dextop `container-session -o vnc` | Ported as fallback, Phase 1 |
+| VNC fallback display server | dextop `container-session -o vnc` | **Decided against** (2026-08-25, audit.md item 7) — never actually built despite this row; native session stays termux-x11-only. Deliberate, not an oversight. |
 | Container image acquisition | `proot-distro` (upstream) | Replaces both XLabs' and dextop's own approaches |
 | Per-container user creation, host-UID-mapped | New (fixes dextop gap) | Phase 2 |
 | App export to host launcher | New (neither project has this) | Phase 3 |

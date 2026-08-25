@@ -15,7 +15,7 @@ from support import check, run, wait_for_rows
 
 from app.app import DexproApp
 from app.screens.box_manager import BoxManagerScreen
-from app.screens.store import StoreScreen
+from app.screens.store import AddRepoScreen, MirrorScreen, ReposScreen, StoreScreen
 
 
 async def test_store_button_does_nothing_with_no_selection() -> None:
@@ -46,9 +46,56 @@ async def test_store_screen_shows_curated_packages() -> None:
         await pilot.pause()
 
 
+async def test_store_uninstall_button_pushes_action_screen() -> None:
+    # DataTable defaults its cursor to row 0 once rows exist (curated
+    # packages populate immediately on mount), so this exercises the
+    # button actually doing something rather than a "no selection" path.
+    from app.screens.common import ActionScreen
+
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        app.push_screen(StoreScreen("nonexistent"))
+        await pilot.pause()
+        await pilot.click("#uninstall")
+        await pilot.pause()
+        check(isinstance(app.screen, ActionScreen), f"got {app.screen!r}")
+
+
+async def test_store_mirror_button_opens_mirror_screen() -> None:
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        app.push_screen(StoreScreen("nonexistent"))
+        await pilot.pause()
+        await pilot.click("#mirror")
+        await pilot.pause()
+        check(isinstance(app.screen, MirrorScreen), f"got {app.screen!r}")
+        await pilot.click("#back")
+        await pilot.pause()
+        check(isinstance(app.screen, StoreScreen), f"got {app.screen!r}")
+
+
+async def test_store_repos_button_opens_repos_then_add_form() -> None:
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        app.push_screen(StoreScreen("nonexistent"))
+        await pilot.pause()
+        await pilot.click("#repos")
+        await pilot.pause()
+        check(isinstance(app.screen, ReposScreen), f"got {app.screen!r}")
+        await pilot.click("#add")
+        await pilot.pause()
+        check(isinstance(app.screen, AddRepoScreen), f"got {app.screen!r}")
+
+
 TESTS = [
     test_store_button_does_nothing_with_no_selection,
     test_store_screen_shows_curated_packages,
+    test_store_uninstall_button_pushes_action_screen,
+    test_store_mirror_button_opens_mirror_screen,
+    test_store_repos_button_opens_repos_then_add_form,
 ]
 
 if __name__ == "__main__":

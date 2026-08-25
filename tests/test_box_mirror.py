@@ -104,6 +104,58 @@ def test_add_custom_repo_rejects_unsafe_uri() -> None:
     check(result is False, "must refuse an unsafe repo URI")
 
 
+_DEB822_SAMPLE = """\
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: trixie
+Components: main
+
+Types: deb
+URIs: http://security.debian.org/debian-security
+Suites: trixie-security
+Components: main
+"""
+
+_LEGACY_SAMPLE = """\
+deb http://deb.debian.org/debian trixie main
+deb http://security.debian.org/debian-security trixie-security main
+"""
+
+
+def test_repoint_deb822_main_changes_only_the_non_security_stanza() -> None:
+    uri = "https://mirror.example/debian"
+    new_content, changed = mirror._repoint_deb822_main(_DEB822_SAMPLE, uri)
+    check(changed == 2, f"expected both URIs lines touched (main + security reasserted): {changed}")
+    check(f"URIs: {uri}" in new_content, new_content)
+    check(f"URIs: {mirror.CANONICAL_SECURITY_URI}" in new_content, new_content)
+    never_mirror = "http://security.debian.org" not in new_content
+    check(never_mirror, "security must never point at the chosen mirror")
+
+
+def test_repoint_deb822_main_is_idempotent_on_security() -> None:
+    once, _ = mirror._repoint_deb822_main(_DEB822_SAMPLE, "https://mirror.example/debian")
+    twice, changed_again = mirror._repoint_deb822_main(once, "https://mirror.example/debian")
+    check(once == twice, "repointing an already-repointed file to the same URI must be a no-op")
+    check(changed_again == 0, "no lines should change on the second pass")
+
+
+def test_repoint_legacy_main_changes_only_the_non_security_line() -> None:
+    uri = "https://mirror.example/debian"
+    new_content, changed = mirror._repoint_legacy_main(_LEGACY_SAMPLE, uri)
+    check(changed == 2, f"expected both lines touched (main + security reasserted): {changed}")
+    check(f"{uri} trixie main" in new_content, new_content)
+    check(f"{mirror.CANONICAL_SECURITY_URI} trixie-security" in new_content, new_content)
+
+
+def test_apply_mirror_fails_gracefully_for_nonexistent_container() -> None:
+    messages: list[str] = []
+    result = mirror.apply_mirror(
+        "definitely-not-a-real-container", "https://mirror.example/debian", log=messages.append
+    )
+    check(result is False, "no rootfs to write to — must report failure, not raise")
+    check(messages, "should explain why it failed")
+
+
 def test_measure_speed_returns_none_for_an_unreachable_host() -> None:
     result = mirror.measure_speed("http://this-host-does-not-exist.invalid/", timeout=3.0)
     check(result is None, "an unreachable host must report None, not raise")
@@ -151,6 +203,10 @@ TESTS = [
     test_is_safe_words_accepts_plain_names_and_rejects_metacharacters,
     test_add_custom_repo_rejects_unsafe_name_before_touching_the_subprocess,
     test_add_custom_repo_rejects_unsafe_uri,
+    test_repoint_deb822_main_changes_only_the_non_security_stanza,
+    test_repoint_deb822_main_is_idempotent_on_security,
+    test_repoint_legacy_main_changes_only_the_non_security_line,
+    test_apply_mirror_fails_gracefully_for_nonexistent_container,
     test_measure_speed_returns_none_for_an_unreachable_host,
     test_fetch_masterlist_follows_the_redirect,
     test_parse_real_debian_masterlist,

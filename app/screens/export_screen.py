@@ -19,6 +19,8 @@ from .common import ActionScreen
 
 
 class ExportScreen(Screen):
+    BINDINGS = [("escape", "back", "Back")]
+
     def __init__(self, container: str) -> None:
         super().__init__()
         self._container = container
@@ -29,10 +31,13 @@ class ExportScreen(Screen):
             yield Label(f"Export apps from '{self._container}'")
             yield SelectionList(id="desktop-files")
             with Horizontal():
-                yield Button("Export selected", id="export")
+                yield Button("Export selected", id="export", variant="success")
                 yield Button("Refresh", id="refresh")
-                yield Button("Back", id="back")
+                yield Button("Back", id="back", variant="primary")
         yield Footer()
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
 
     def on_mount(self) -> None:
         self.refresh_list()
@@ -55,6 +60,7 @@ class ExportScreen(Screen):
         selection_list = self.query_one("#desktop-files", SelectionList)
         selected = list(selection_list.selected)
         if not selected:
+            self.notify("Select at least one .desktop file first.", severity="warning")
             return
         container = self._container
 

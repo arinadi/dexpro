@@ -10,6 +10,7 @@ upstream. Do not port dextop's container-image manual tar.xz extraction.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from collections.abc import Callable
@@ -18,6 +19,15 @@ Log = Callable[[str], None]
 
 BINARY = "proot-distro"
 MIN_VERSION = (5, 0, 0)
+
+
+def container_rootfs_path(name: str) -> str | None:
+    """Host-side path to a container's rootfs, or None if it doesn't
+    exist. Canonical home for this lookup — doctor/checks.py and
+    box/mirror.py both need it and must not each derive it separately."""
+    prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+    candidate = os.path.join(prefix, "var", "lib", "proot-distro", "containers", name, "rootfs")
+    return candidate if os.path.isdir(candidate) else None
 
 
 def _run(

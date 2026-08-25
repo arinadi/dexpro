@@ -22,6 +22,7 @@ from textual.containers import Grid, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label
 
+from .. import backup as backup_mod
 from ..box import create as box_create
 from ..box import manager
 from .common import ActionScreen, ConfirmScreen
@@ -46,6 +47,7 @@ class CreateBoxScreen(Screen[None]):
         name = self.query_one("#name", Input).value.strip()
         image = self.query_one("#image", Input).value.strip()
         if not name or not image:
+            self.notify("Name and image are both required.", severity="warning")
             return
         self.app.pop_screen()
 
@@ -56,6 +58,8 @@ class CreateBoxScreen(Screen[None]):
 
 
 class BoxManagerScreen(Screen):
+    BINDINGS = [("escape", "back", "Back")]
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical():
@@ -67,11 +71,12 @@ class BoxManagerScreen(Screen):
             # was added as a sixth button). Same fix XLabs' own
             # MainScreen already needed for the same reason.
             with Grid(id="box-actions"):
-                yield Button("Create", id="create")
+                yield Button("Create", id="create", variant="success")
                 yield Button("Enter", id="enter")
                 yield Button("Export", id="export")
                 yield Button("Store", id="store")
-                yield Button("Remove", id="remove")
+                yield Button("Backup", id="backup")
+                yield Button("Remove", id="remove", variant="error")
                 yield Button("Refresh", id="refresh")
                 yield Button("Back", id="back")
         yield Footer()
@@ -109,22 +114,41 @@ class BoxManagerScreen(Screen):
             self._export_selected()
         elif event.button.id == "store":
             self._store_selected()
+        elif event.button.id == "backup":
+            self._backup_selected()
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
 
     def _export_selected(self) -> None:
         name = self._selected_name()
         if name is None:
+            self.notify("Select a container first.", severity="warning")
             return
         self.app.push_screen(ExportScreen(name))
 
     def _store_selected(self) -> None:
         name = self._selected_name()
         if name is None:
+            self.notify("Select a container first.", severity="warning")
             return
         self.app.push_screen(StoreScreen(name))
+
+    def _backup_selected(self) -> None:
+        name = self._selected_name()
+        if name is None:
+            self.notify("Select a container first.", severity="warning")
+            return
+
+        def _run(logger):
+            return backup_mod.backup_container(name, log=logger)
+
+        self.app.push_screen(ActionScreen(f"Backing up {name}", _run))
 
     async def _remove_selected(self) -> None:
         name = self._selected_name()
         if name is None:
+            self.notify("Select a container first.", severity="warning")
             return
         confirmed = await self.app.push_screen_wait(
             ConfirmScreen(f"Remove container '{name}'? This cannot be undone.")
@@ -137,6 +161,7 @@ class BoxManagerScreen(Screen):
     def _enter_selected(self) -> None:
         name = self._selected_name()
         if name is None:
+            self.notify("Select a container first.", severity="warning")
             return
         with self.app.suspend():
             subprocess.run(manager.login_command(name))

@@ -58,10 +58,13 @@ def patch_no_sandbox(content: str) -> str:
     return _EXEC_LINE.sub(f"Exec={patched_exec}", content, count=1)
 
 
-def scan_and_patch(container: str, log: Log | None = None) -> list[str]:
-    """Finds Electron apps inside the container and patches their
-    .desktop files in place. Returns the list of patched paths."""
-    patched: list[str] = []
+def find_unpatched(container: str) -> list[str]:
+    """Read-only detection pass: which .desktop files need the
+    --no-sandbox patch, without writing anything. Doctor's status check
+    uses this — scan_and_patch() itself must stay a fix-only action, not
+    something a mere screen refresh silently triggers (same discipline as
+    native/audio.py's PULSE_AUTOSPAWN=0 fix for a read-only probe)."""
+    found: list[str] = []
     for desktop_path in box_export.list_desktop_files(container):
         content = _read_desktop_file(container, desktop_path)
         if content is None:
@@ -72,7 +75,18 @@ def scan_and_patch(container: str, log: Log | None = None) -> list[str]:
         binary = resolve_binary(match.group(1))
         if not binary or not is_electron_app(container, binary):
             continue
-        if not needs_no_sandbox_patch(content):
+        if needs_no_sandbox_patch(content):
+            found.append(desktop_path)
+    return found
+
+
+def scan_and_patch(container: str, log: Log | None = None) -> list[str]:
+    """Finds Electron apps inside the container and patches their
+    .desktop files in place. Returns the list of patched paths."""
+    patched: list[str] = []
+    for desktop_path in find_unpatched(container):
+        content = _read_desktop_file(container, desktop_path)
+        if content is None:
             continue
         new_content = patch_no_sandbox(content)
         if _write_desktop_file(container, desktop_path, new_content, log=log):

@@ -79,6 +79,51 @@ def test_check_user_uid_mapped_is_unknown_when_rootfs_missing() -> None:
     check(issue.unknown, "should be flagged unknown, not a false failure claim")
 
 
+def test_check_textual_importable_is_ok_here() -> None:
+    # textual has to be installed for this very test run to exist —
+    # a positive case for once, but still asserting the check's contract.
+    issue = checks.check_textual_importable()
+    check(issue.ok, "textual is installed in this venv — the check must see that")
+    check(issue.fix is None, "nothing to fix when it's already importable")
+
+
+def test_check_launcher_resolves_reports_a_definite_bool_when_absent() -> None:
+    # No $PREFIX/bin/dexpro symlink exists on this Windows dev machine —
+    # must report a clean not-ok, never raise.
+    issue = checks.check_launcher_resolves()
+    check(issue.ok is False, "no launcher symlink exists here")
+    check(issue.fix is not None, "a missing/broken launcher should be auto-fixable")
+
+
+def test_check_termux_packages_reports_a_definite_bool() -> None:
+    # dpkg-query doesn't exist on this Windows dev machine — must fail
+    # gracefully (all "missing"), not crash.
+    issue = checks.check_termux_packages()
+    check(isinstance(issue.ok, bool), "ok must be a definite bool")
+    if not issue.ok:
+        check(issue.fix is not None, "missing packages should be auto-fixable via pkg install")
+
+
+def test_check_fonts_reports_a_definite_bool() -> None:
+    issue = checks.check_fonts()
+    check(isinstance(issue.ok, bool), "ok must be a definite bool")
+    if not issue.ok:
+        check(issue.fix is not None, "missing fonts should be auto-fixable")
+
+
+def test_check_duplicates_reports_ok_for_nonexistent_container() -> None:
+    # No proot-distro/manager.login_command target exists here — the
+    # underlying subprocess calls fail gracefully, so no duplicates are
+    # ever found, which is a true "ok", not a crash.
+    issue = checks.check_duplicates("definitely-not-a-real-container")
+    check(issue.ok, "nothing can be detected as duplicated without a real container")
+
+
+def test_check_electron_reports_ok_for_nonexistent_container() -> None:
+    issue = checks.check_electron("definitely-not-a-real-container")
+    check(issue.ok, "nothing can be detected as unpatched without a real container")
+
+
 def test_run_all_checks_includes_native_and_per_container() -> None:
     issues = checks.run_all_checks(containers=["fake-container"])
     names = [i.name for i in issues]
@@ -94,6 +139,12 @@ TESTS = [
     test_check_audio_is_a_read_only_probe,
     test_check_wakelock_binary_reports_a_definite_bool,
     test_check_termux_x11_installed_reports_not_ok_when_absent,
+    test_check_textual_importable_is_ok_here,
+    test_check_launcher_resolves_reports_a_definite_bool_when_absent,
+    test_check_termux_packages_reports_a_definite_bool,
+    test_check_fonts_reports_a_definite_bool,
+    test_check_duplicates_reports_ok_for_nonexistent_container,
+    test_check_electron_reports_ok_for_nonexistent_container,
     test_run_native_checks_returns_one_issue_per_check,
     test_container_rootfs_path_is_none_for_nonexistent_container,
     test_check_user_uid_mapped_is_unknown_when_rootfs_missing,

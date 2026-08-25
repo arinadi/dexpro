@@ -5,16 +5,20 @@ parameterized per-container.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from collections.abc import Callable
 
-from . import manager
+from . import manager, packages
 
 Log = Callable[[str], None]
 
 MIRROR_LIST_URL = "http://mirror-master.debian.org/status/Mirrors.masterlist"
 CANONICAL_SECURITY_URI = "https://security.debian.org/debian-security"
+
+SOURCES_DEB822 = "/etc/apt/sources.list.d/debian.sources"
+SOURCES_LEGACY = "/etc/apt/sources.list"
 
 # Shell-injection defense for custom repo fields — allow-list by
 # rejection, same discipline as box/packages.py's SAFE_TERM.
@@ -133,6 +137,139 @@ def is_safe_uri(uri: str) -> bool:
 
 def is_safe_words(text: str) -> bool:
     return bool(SAFE_WORDS.match(text))
+
+
+def _sources_file(container: str) -> str | None:
+    """Whichever sources file this container actually uses — modern
+    Debian images (debian:13/trixie) ship deb822, older ones legacy."""
+    rootfs = manager.container_rootfs_path(container)
+    if rootfs is None:
+        return None
+    for path in (SOURCES_DEB822, SOURCES_LEGACY):
+        if os.path.exists(os.path.join(rootfs, path.lstrip("/"))):
+            return path
+    return None
+
+
+def _is_security_suite(suite: str) -> bool:
+    return suite == "security" or suite.endswith("-security")
+
+
+def _parse_deb822_stanzas(content: str) -> list[list[str]]:
+    stanzas: list[list[str]] = []
+    current: list[str] = []
+    for line in content.splitlines():
+        if line.strip() == "":
+            if current:
+                stanzas.append(current)
+                current = []
+        else:
+            current.append(line)
+    if current:
+        stanzas.append(current)
+    return stanzas
+
+
+def _deb822_stanza_is_security(stanza: list[str]) -> bool:
+    for line in stanza:
+        stripped = line.strip()
+        if stripped.startswith("Suites:"):
+            return any(_is_security_suite(s) for s in stripped.split(":", 1)[1].split())
+    return False
+
+
+def _repoint_deb822_main(content: str, uri: str) -> tuple[str, int]:
+    stanzas = _parse_deb822_stanzas(content)
+    changed = 0
+    for stanza in stanzas:
+        is_security = _deb822_stanza_is_security(stanza)
+        for i, line in enumerate(stanza):
+            if not line.strip().startswith("URIs:"):
+                continue
+            new_value = CANONICAL_SECURITY_URI if is_security else uri
+            replacement = f"URIs: {new_value}"
+            if line != replacement:
+                stanza[i] = replacement
+                changed += 1
+    return "\n\n".join("\n".join(s) for s in stanzas) + "\n", changed
+
+
+def _legacy_line_is_security(stripped: str) -> bool:
+    parts = stripped.split()
+    return len(parts) >= 3 and _is_security_suite(parts[2])
+
+
+def _repoint_legacy_main(content: str, uri: str) -> tuple[str, int]:
+    lines = content.splitlines()
+    changed = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not (stripped.startswith(("deb ", "deb-src ")) and "://" in stripped):
+            continue
+        parts = stripped.split()
+        new_uri = CANONICAL_SECURITY_URI if _legacy_line_is_security(stripped) else uri
+        if parts[1] != new_uri:
+            parts[1] = new_uri
+            lines[i] = " ".join(parts)
+            changed += 1
+    return "\n".join(lines) + "\n", changed
+
+
+def apply_mirror(container: str, uri: str, log: Log | None = None) -> bool:
+    """Points the container's main Debian archive at `uri`, rewritten
+    directly on the host-side rootfs (no container login needed, and it
+    works even if apt inside the container is currently broken). The
+    security stanza is always forced to CANONICAL_SECURITY_URI — never to
+    the chosen mirror, since ordinary mirrors aren't required to carry
+    debian-security. Rolls back to the original file if `apt-get update`
+    then fails against the new mirror, mirroring XLabs' set_mirror.
+    """
+    rootfs = manager.container_rootfs_path(container)
+    rel_path = _sources_file(container)
+    if rootfs is None or rel_path is None:
+        if log:
+            log(f"error: no Debian sources file found for '{container}'")
+        return False
+
+    target = os.path.join(rootfs, rel_path.lstrip("/"))
+    try:
+        with open(target, encoding="utf-8") as f:
+            original = f.read()
+    except OSError as exc:
+        if log:
+            log(f"error: could not read {rel_path}: {exc}")
+        return False
+
+    repoint = _repoint_deb822_main if rel_path == SOURCES_DEB822 else _repoint_legacy_main
+    new_content, changed = repoint(original, uri)
+    if not changed:
+        if log:
+            log(f"error: no archive line found in {rel_path}")
+        return False
+
+    def _write(content: str) -> bool:
+        try:
+            with open(target, "w", encoding="utf-8", newline="\n") as f:
+                f.write(content)
+            return True
+        except OSError as exc:
+            if log:
+                log(f"error: could not write {rel_path}: {exc}")
+            return False
+
+    if not _write(new_content):
+        return False
+    if log:
+        log(f"{rel_path} now points at {uri} ({changed} line(s) changed)")
+
+    if packages.update_lists(container, log=log):
+        return True
+
+    if log:
+        log("apt could not use that mirror — putting the old sources back")
+    _write(original)
+    packages.update_lists(container, log=log)
+    return False
 
 
 def add_custom_repo(

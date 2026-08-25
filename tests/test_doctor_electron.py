@@ -63,6 +63,11 @@ def test_scan_and_patch_fails_gracefully_when_proot_distro_missing() -> None:
     check(result == [], f"expected an empty list when proot-distro is unavailable, got {result!r}")
 
 
+def test_find_unpatched_fails_gracefully_when_proot_distro_missing() -> None:
+    result = electron.find_unpatched("work")
+    check(result == [], f"expected an empty list when proot-distro is unavailable, got {result!r}")
+
+
 TESTS = [
     test_resolve_binary_takes_first_token,
     test_needs_no_sandbox_patch_true_when_missing,
@@ -72,6 +77,7 @@ TESTS = [
     test_patch_no_sandbox_is_idempotent,
     test_is_electron_app_fails_gracefully_when_proot_distro_missing,
     test_scan_and_patch_fails_gracefully_when_proot_distro_missing,
+    test_find_unpatched_fails_gracefully_when_proot_distro_missing,
 ]
 
 if __name__ == "__main__":

@@ -44,9 +44,22 @@ async def test_box_table_loads_without_proot_distro_installed() -> None:
         check(table.row_count == 0, f"expected an empty table, got {table.row_count} rows")
 
 
+async def test_backup_button_does_nothing_with_no_selection() -> None:
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        await pilot.click("#boxes")
+        await pilot.pause()
+        await pilot.click("#backup")
+        await pilot.pause()
+        still_here = isinstance(app.screen, BoxManagerScreen)
+        check(still_here, "Backup with no selection (empty table) must not navigate")
+
+
 TESTS = [
     test_boxes_button_opens_box_manager,
     test_box_table_loads_without_proot_distro_installed,
+    test_backup_button_does_nothing_with_no_selection,
 ]
 
 if __name__ == "__main__":

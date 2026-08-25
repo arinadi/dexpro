@@ -13,7 +13,7 @@ PRD refs: G1, G6, §5.1, §7.1, §7.2, §7.4, §10 (addendum)
 
 - Termux app — GitHub Releases or F-Droid (note: these are separately signed; pick one and stay on it, don't mix update channels).
 - **Termux:X11** app — GitHub Releases `nightly` tag only. Two APK variants: `-universal-debug.apk` (standard) vs `-universal-sharedUid-debug.apk` (avoids CPU throttling, but requires a Termux build signed to match — GitHub build, not F-Droid's differently-signed build). **Pick the matching pair and document it** — this is a real, easy-to-hit mismatch pitfall, not a hypothetical.
-- Termux packages: `x11-repo` (enables the repo), then `termux-x11-nightly`, `virglrenderer-android`, `xorg-server-xvfb` (fallback display server), `pulseaudio`, `dbus`, plus the chosen WM/DE package set (§ Task 8).
+- Termux packages: `x11-repo` (enables the repo), then `termux-x11-nightly`, `virglrenderer-android`, `pulseaudio`, `dbus`, plus the chosen WM/DE package set (§ Task 8). `xorg-server-xvfb`/VNC fallback dropped — decided against (2026-08-25, audit.md item 7): native session stays termux-x11-only.
 
 ## Spikes to resolve before/during implementation (do not assume — verify on-device)
 
