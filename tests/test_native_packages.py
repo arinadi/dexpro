@@ -142,6 +142,47 @@ def test_ensure_binary_does_not_retry_within_the_same_attempted_set() -> None:
     check(len(calls) == 1, f"expected exactly one install attempt, got {len(calls)}")
 
 
+def test_ensure_binary_explains_when_install_succeeds_but_binary_still_missing() -> None:
+    # Real device report: "pkg install langsung done tanpa log install,
+    # saya curiga lib glmark2 tidak ada di termux" — apt/pkg can exit 0
+    # ("done") while never actually providing the binary (e.g. "Unable
+    # to locate package" as a non-fatal warning). That contradiction must
+    # be explained, not returned as a bare, unexplained False.
+    import unittest.mock as mock
+
+    with mock.patch.object(packages.shutil, "which", return_value=None):
+        with mock.patch.object(packages, "install", return_value=True):
+            messages: list[str] = []
+            ok = packages.ensure_binary("glmark2", log=messages.append)
+    check(ok is False, "must not report success when the binary still isn't on PATH")
+    check(
+        any("install reported success" in m and "glmark2" in m for m in messages),
+        f"expected the contradiction explained, got {messages!r}",
+    )
+
+
+def test_run_logs_real_output_on_a_successful_install_not_just_done() -> None:
+    # A run can exit 0 while still printing something worth seeing (e.g.
+    # apt's own "Unable to locate package" as a non-fatal notice) — only
+    # ever logging "done" hid that entirely.
+    import subprocess
+    import unittest.mock as mock
+
+    def fake_run(cmd, **kwargs):
+        stdout = "Reading package lists...\nE: Unable to locate package glmark2\n"
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    messages: list[str] = []
+    with mock.patch("subprocess.run", fake_run):
+        result = packages.install(["glmark2"], log=messages.append)
+    check(result is True, "a zero exit code is still reported as success at this layer")
+    check(
+        any("Unable to locate package glmark2" in m for m in messages),
+        f"expected the real apt output surfaced, got {messages!r}",
+    )
+    check("done" in messages, "must still confirm completion after the output")
+
+
 def test_ensure_binary_fails_gracefully_with_no_real_pkg() -> None:
     # Real, unmocked behavior on this dev machine: no such binary and no
     # real `pkg` to install it with.
@@ -181,6 +222,8 @@ TESTS = [
     test_ensure_binary_installs_and_reverifies_with_which,
     test_ensure_binary_uses_the_mapped_package_name,
     test_ensure_binary_does_not_retry_within_the_same_attempted_set,
+    test_ensure_binary_explains_when_install_succeeds_but_binary_still_missing,
+    test_run_logs_real_output_on_a_successful_install_not_just_done,
     test_ensure_binary_fails_gracefully_with_no_real_pkg,
     test_install_logs_the_command_and_success_not_just_failure,
 ]

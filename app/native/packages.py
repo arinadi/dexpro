@@ -146,7 +146,23 @@ def ensure_binary(
         attempted.add(binary)
     if not install([package or binary], log=log):
         return False
-    return shutil.which(binary) is not None
+    if shutil.which(binary) is not None:
+        return True
+    # install() reported success (pkg/apt exited 0), but the binary still
+    # isn't on PATH — apt considers "cannot locate this package name" a
+    # non-fatal warning in some cases rather than a failing exit code, so
+    # a bare exit-code check alone can't be trusted here (confirmed by a
+    # real report: "pkg install langsung done tanpa log install" — no
+    # visible reason the binary was still missing after a "successful"
+    # run). Log the contradiction explicitly instead of a silent False.
+    if log:
+        log(
+            f"{package or binary} install reported success, but {binary} still "
+            f"isn't on PATH — check the output above for 'Unable to locate "
+            f"package': the package name may not exist under this name in "
+            f"Termux's repos, or it installs a different binary than expected"
+        )
+    return False
 
 
 def uninstall(names: list[str], log: Log | None = None) -> bool:
@@ -165,8 +181,23 @@ def _run(command: list[str], timeout: float, log: Log | None) -> bool:
     if log:
         log(f"$ {' '.join(command)}")
     try:
-        subprocess.run(command, capture_output=True, timeout=timeout, check=True, text=True)
+        result = subprocess.run(
+            command, capture_output=True, timeout=timeout, check=True, text=True
+        )
         if log:
+            # 2026-08-26: a real device report of "pkg install just says
+            # done, no install log" turned up that a *successful* (exit 0)
+            # run discarded its own output entirely — apt/pkg's actual
+            # per-package output (what it resolved, what it skipped, a
+            # non-fatal "Unable to locate package" that doesn't always
+            # fail the whole exit code) was never shown, only "done".
+            # Surfacing it is what actually lets a report like "I suspect
+            # glmark2 doesn't exist in Termux" be confirmed or ruled out
+            # from the log itself, not by guessing.
+            output = (result.stdout + result.stderr).strip()
+            if output:
+                for line in output.splitlines():
+                    log(f"    {line}")
             log("done")
         return True
     except subprocess.CalledProcessError as exc:
