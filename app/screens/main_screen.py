@@ -12,6 +12,7 @@ from .backup import BackupScreen
 from .box_manager import BoxManagerScreen
 from .common import ActionScreen
 from .doctor import DoctorScreen
+from .settings import SettingsScreen
 
 
 class MainScreen(Screen):
@@ -23,6 +24,7 @@ class MainScreen(Screen):
             yield Button("Boxes", id="boxes")
             yield Button("Doctor", id="doctor")
             yield Button("Backup", id="backup")
+            yield Button("Settings", id="settings")
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -36,6 +38,8 @@ class MainScreen(Screen):
             self.app.push_screen(DoctorScreen())
         elif event.button.id == "backup":
             self.app.push_screen(BackupScreen())
+        elif event.button.id == "settings":
+            self.app.push_screen(SettingsScreen())
 
     def _start(self, logger) -> None:
         logger.write("starting native session...")

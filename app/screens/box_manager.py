@@ -26,6 +26,7 @@ from ..box import create as box_create
 from ..box import manager
 from .common import ActionScreen, ConfirmScreen
 from .export_screen import ExportScreen
+from .store import StoreScreen
 
 
 class CreateBoxScreen(Screen[None]):
@@ -69,6 +70,7 @@ class BoxManagerScreen(Screen):
                 yield Button("Create", id="create")
                 yield Button("Enter", id="enter")
                 yield Button("Export", id="export")
+                yield Button("Store", id="store")
                 yield Button("Remove", id="remove")
                 yield Button("Refresh", id="refresh")
                 yield Button("Back", id="back")
@@ -105,12 +107,20 @@ class BoxManagerScreen(Screen):
             self._enter_selected()
         elif event.button.id == "export":
             self._export_selected()
+        elif event.button.id == "store":
+            self._store_selected()
 
     def _export_selected(self) -> None:
         name = self._selected_name()
         if name is None:
             return
         self.app.push_screen(ExportScreen(name))
+
+    def _store_selected(self) -> None:
+        name = self._selected_name()
+        if name is None:
+            return
+        self.app.push_screen(StoreScreen(name))
 
     async def _remove_selected(self) -> None:
         name = self._selected_name()

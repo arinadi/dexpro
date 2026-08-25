@@ -74,3 +74,16 @@ Port XLabs' `packages.py` Store UX closely — it's the most fully-designed piec
 ## Exit criteria
 
 Storage, Settings, Store, and Android-app bridging are all functional across the native layer and `dexpro-box` containers, matching or exceeding XLabs' and dextop's combined feature set in these specific areas — without carrying forward either project's known bugs (dextop's synonym-matcher, XLabs' none identified in this area).
+
+## Verified on-device / on-network (2026-08-25)
+
+Two real bugs found via testing, both in `box/mirror.py`, both fixed:
+
+1. **`measure_speed()` misreported total failure as "measured, zero speed."** Confirmed on this dev machine: `curl` against an unreachable host exits with code 6 (DNS resolution failure) but still prints `speed_download=0` — the original code only checked whether `float()` parsing succeeded, not the exit code, so a completely unreachable mirror was silently reported as `0.0` instead of `None`. Fixed by checking `returncode != 0` first.
+2. **`MIRROR_LIST_URL` (plain `http://`) 301-redirects to `https://`, and nothing followed the redirect.** Confirmed via direct `curl -I`: without `-L`, the response body is just the redirect page, not the masterlist — `parse_masterlist()` correctly returned 0 mirrors from that garbage input (the parser itself was never wrong). Also surfaced a genuine gap: `mirror.py` had `parse_masterlist()` (a pure parser) but no actual fetch function at all — added `fetch_masterlist()` with `-L`.
+
+**Genuinely verified against real infrastructure, not mocked**: `fetch_masterlist()` + `parse_masterlist()` against the real, live Debian masterlist (50+ real mirrors parsed, both required fields present on every entry), and `measure_speed()` against a real mirror (`deb.debian.org`) reporting an actual positive download speed. This needed no Termux/Android at all — just `curl` and internet access, both available on this dev machine, so it ran directly (not just in the Podman container).
+
+**Also verified for real (Linux container)**: `android/storage.py`'s `_make_link()` genuinely creates a working, correctly-resolving symlink on Linux — confirmed via `os.path.islink()` and `os.path.realpath()` matching the source, not just "didn't raise." (On this Windows dev machine, the same function correctly reports failure without elevated privilege — both are the function behaving correctly for their respective platforms, not two different code paths.)
+
+**Not verified — needs the real device, same limitation class as Phase 1's X11-rendering gap**: `trigger_storage_permission()`/`open_uri()`/`open_handle()` all depend on Android's `am` command, which doesn't exist anywhere in this session's environment (Windows or the Podman/termux-docker container) — only their graceful-failure paths were exercised. The volume-ID regex (`is_volume_id`) is this session's own re-derivation of garbled research, not a confirmed port — needs checking against `termux-storage`'s actual source or real device `/proc/mounts` output before being trusted as authoritative. Settings' Uninstall button is a confirm-gate stub only — actual removal isn't wired up. Store's mirror/custom-repo controls (`box/mirror.py`) aren't in the TUI yet, only the package browse/search/install flow is.
