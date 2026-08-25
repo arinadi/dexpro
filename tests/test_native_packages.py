@@ -85,6 +85,26 @@ def test_search_uses_apt_cache_not_pkg() -> None:
     check(result == ["neovim - Vim text editor"], f"got {result!r}")
 
 
+def test_install_logs_the_command_and_success_not_just_failure() -> None:
+    # Regression test for a real reported bug: Enable Repo / Install
+    # showed a completely empty log window because _run() only ever
+    # called log() on failure. A successful command must announce
+    # itself and confirm completion, not run silently.
+    import subprocess
+    import unittest.mock as mock
+
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    messages: list[str] = []
+    with mock.patch("subprocess.run", fake_run):
+        result = packages.install(["neovim"], log=messages.append)
+
+    check(result is True, "install should succeed")
+    check(any(m.startswith("$ pkg install") for m in messages), f"got {messages!r}")
+    check("done" in messages, f"a successful run must confirm completion: {messages!r}")
+
+
 TESTS = [
     test_enabled_repos_reports_a_definite_set_when_dpkg_query_absent,
     test_enable_repo_rejects_unknown_name_before_touching_the_subprocess,
@@ -93,6 +113,7 @@ TESTS = [
     test_uninstall_rejects_unsafe_package_name,
     test_search_fails_gracefully_when_apt_cache_missing,
     test_search_uses_apt_cache_not_pkg,
+    test_install_logs_the_command_and_success_not_just_failure,
 ]
 
 if __name__ == "__main__":

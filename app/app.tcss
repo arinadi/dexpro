@@ -75,7 +75,7 @@ Button#back {
 
 #box-actions {
     grid-size: 2;
-    grid-rows: 4;
+    grid-rows: 5;
     grid-gutter: 1 2;
     padding: 1 2;
     height: auto;
@@ -155,6 +155,16 @@ SettingsScreen Label {
 
 SettingsScreen Select {
     margin: 0 2;
+}
+
+#settings-font-path {
+    width: 1fr;
+    margin: 0 0 0 2;
+}
+
+SettingsScreen #apply-font {
+    width: 10;
+    margin: 0 2 0 1;
 }
 
 #settings-status {

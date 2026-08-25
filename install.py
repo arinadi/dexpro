@@ -9,10 +9,14 @@ native session needs (build-task-phase1.md Prerequisites), and links the
 from __future__ import annotations
 
 import os
+import shutil
+import socket
 import subprocess
 import sys
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+
+MIN_FREE_GB = 4.0  # the x11-repo/xfce4 package set plus caches, comfortably
 
 # termux-x11-nightly/virglrenderer-android/xfce4/xfce4-terminal all live in
 # x11-repo, not termux-main — it must be installed AND its package list
@@ -27,12 +31,72 @@ REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 # "virgl" preset requires. "pulseaudio" (not Debian-style "pulseaudio-utils"
 # — Termux doesn't split them) provides both the daemon and pactl, which
 # app/native/audio.py needs.
+#
+# "theme" and "multimedia" (2026-08-26, re-researched from dextop's actual
+# termux-packages script — the Termux-side one, not XLabs' fonts.py which
+# turned out to be for a Debian *container* via apt-get, a different
+# package namespace entirely): dextop's own xfce_themes_list only has
+# adwaita-icon-theme active for Termux (arc-theme is commented out there,
+# specifically for the Termux side — not carried over here on the same
+# caution this project has already needed twice with cross-context package
+# names). Packages only, not applied as the active theme via xfconf: doing
+# that means running xfconf-query against the same D-Bus session
+# native/session.py hands off to xfce4-session, and this project has no
+# device to verify that sequencing works cleanly — the packages just being
+# available (for XFCE's own Settings Manager, or the user's own choice)
+# is the safe, bounded piece of this.
 PACKAGE_GROUPS = {
     "Termux:X11": ["termux-x11-nightly"],
     "graphics": ["virglrenderer-android"],
     "audio/dbus": ["pulseaudio", "dbus"],
     "desktop": ["xfce4", "xfce4-terminal"],
+    "theme": ["papirus-icon-theme", "adwaita-icon-theme"],
+    "multimedia": [
+        "ffmpeg",
+        "flac",
+        "gstreamer",
+        "gst-plugins-good",
+        "gst-plugins-bad",
+        "gst-plugins-ugly",
+        "gst-plugins-base",
+    ],
 }
+
+
+def preflight() -> None:
+    """Environment checks before anything is installed — ported from
+    XLabs' preflight.py (ran before this session found install.py never
+    checked internet/storage/Python version at all, unlike XLabs). Pure
+    stdlib on purpose: this runs before pip has installed anything.
+    Only Internet is fatal — the rest describe conditions the rest of
+    this script is about to hit anyway, so they're warnings, not a
+    reason to refuse to try.
+    """
+    print(">>> Checking environment")
+
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=5).close()
+        print("    ok Internet")
+    except OSError:
+        print("    !! No internet connection — cannot install")
+        raise SystemExit(1) from None
+
+    for path in ("/data", os.path.expanduser("~"), "/"):
+        try:
+            free_gb = shutil.disk_usage(path).free / (1024**3)
+        except OSError:
+            continue
+        if free_gb < MIN_FREE_GB:
+            print(f"    !! Storage: only {free_gb:.1f} GB free (recommend {MIN_FREE_GB:g}+ GB)")
+        else:
+            print(f"    ok Storage: {free_gb:.1f} GB free")
+        break
+
+    major, minor = sys.version_info[:2]
+    if (major, minor) < (3, 10):
+        print(f"    !! Python {major}.{minor} — dexpro needs 3.10+")
+    else:
+        print(f"    ok Python {major}.{minor}")
 
 
 def run(cmd: list[str], check: bool = True) -> int:
@@ -95,6 +159,7 @@ def link_launcher() -> None:
 
 
 def main() -> int:
+    preflight()
     install_libs()
     install_packages()
     link_launcher()

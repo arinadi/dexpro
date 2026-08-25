@@ -101,10 +101,70 @@ async def test_settings_selects_show_real_options_not_empty() -> None:
         await pilot.pause()
         await pilot.click("#settings")
         await pilot.pause()
-        for widget_id in ("#settings-gpu", "#settings-storage", "#settings-x11"):
+        ids = ("#settings-gpu", "#settings-storage", "#settings-x11", "#settings-audio")
+        for widget_id in ids:
             select = app.screen.query_one(widget_id, Select)
             check(len(select._options) > 0, f"{widget_id} has no options")
             check(select.value is not None, f"{widget_id} has no value selected")
+
+
+async def test_changing_audio_select_persists_immediately() -> None:
+    from textual.widgets import Select
+
+    original = const.CONFIG_FILE
+    fd, path = tempfile.mkstemp(suffix=".env")
+    os.close(fd)
+    os.remove(path)
+    const.CONFIG_FILE = path
+    try:
+        app = DexproApp()
+        async with app.run_test(size=(80, 40)) as pilot:
+            await pilot.pause()
+            await pilot.click("#settings")
+            await pilot.pause()
+            audio_select = app.screen.query_one("#settings-audio", Select)
+            check(audio_select.value == "off", "audio must default to off in the UI too")
+            audio_select.value = "on"
+            await pilot.pause()
+
+        from app.native import audio
+
+        check(audio.is_enabled() is True, "Audio Select change wasn't persisted")
+    finally:
+        const.CONFIG_FILE = original
+        if os.path.exists(path):
+            os.remove(path)
+
+
+async def test_apply_font_warns_when_path_empty() -> None:
+    from app.screens.common import ActionScreen
+
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        await pilot.click("#settings")
+        await pilot.pause()
+        await pilot.click("#apply-font")
+        await pilot.pause()
+        still_here = isinstance(app.screen, SettingsScreen)
+        check(still_here, "Apply with an empty path must not navigate")
+        check(not isinstance(app.screen, ActionScreen), "must not start an action with no path")
+
+
+async def test_apply_font_pushes_action_screen_when_path_given() -> None:
+    from textual.widgets import Input
+
+    from app.screens.common import ActionScreen
+
+    app = DexproApp()
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.pause()
+        await pilot.click("#settings")
+        await pilot.pause()
+        app.screen.query_one("#settings-font-path", Input).value = "/tmp/whatever.ttf"
+        await pilot.click("#apply-font")
+        await pilot.pause()
+        check(isinstance(app.screen, ActionScreen), f"got {app.screen!r}")
 
 
 def test_uninstall_removes_launcher_and_config() -> None:
@@ -158,6 +218,9 @@ TESTS = [
     test_changing_gpu_select_persists_immediately,
     test_changing_storage_link_select_persists_immediately,
     test_settings_selects_show_real_options_not_empty,
+    test_changing_audio_select_persists_immediately,
+    test_apply_font_warns_when_path_empty,
+    test_apply_font_pushes_action_screen_when_path_given,
     test_uninstall_removes_launcher_and_config,
     test_uninstall_is_idempotent_when_already_gone,
 ]

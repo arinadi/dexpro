@@ -10,6 +10,15 @@ this session found no reliable, confirmed command for from inside
 Termux's own shell. Rather than pretend to check it, this only confirms
 the package is installed and marks the deeper signing-variant question
 `unknown=True` — an honest gap, not a false pass.
+
+No Fonts check: removed 2026-08-25 after a real device confirmed
+fonts-noto-color-emoji isn't a real Termux package — doctor/fonts.py
+ported XLabs' Debian package names verbatim without re-checking they
+exist under Termux's own `pkg`, so the check could never pass. The
+fonts.py module itself is untouched (patch_terminal_font() is still
+useful independent of package availability); only the broken Doctor
+check was removed. Revisit once real Termux font package names are
+confirmed.
 """
 
 from __future__ import annotations
@@ -17,17 +26,19 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+import socket
 import subprocess
 import sys
 from collections.abc import Callable
 from typing import NamedTuple
 
 from .. import const
+from ..box import browser
 from ..box import manager as box_manager
 from ..box import packages as box_packages
 from ..box import user as box_user
 from ..native import audio, gpu, x11
-from . import duplicates, electron, fonts
+from . import duplicates, electron
 
 Log = Callable[[str], None]
 
@@ -69,8 +80,14 @@ def check_gpu_profile() -> Issue:
 
 
 def check_audio() -> Issue:
+    if not audio.is_enabled():
+        # Off is the deliberate default (dextop's own — battery/CPU
+        # cost), not a fault. Reporting it as a red "not ok" would make
+        # Doctor flag the expected, chosen state as broken every single
+        # time on a fresh install.
+        return Issue("Audio", True, "disabled in Settings (default)")
     running = audio.is_running()
-    detail = "" if running else "PulseAudio isn't running"
+    detail = "" if running else "enabled in Settings but PulseAudio isn't running"
     return Issue("Audio", running, detail, fix=lambda log: audio.ensure_server(log))
 
 
@@ -86,6 +103,62 @@ def check_termux_x11_installed() -> Issue:
         return Issue("Termux:X11", False, "termux-x11 package not installed")
     detail = "installed; signing-variant match (universal/sharedUid, GitHub/F-Droid) not verified"
     return Issue("Termux:X11", True, detail, unknown=True)
+
+
+# Termux:X11 the Termux *package* (checked above) is not the same thing
+# as the com.termux.x11 Android *app* — the desktop starts but has
+# nowhere to render without the app installed, per XLabs' own
+# check_x11_app() docstring. Ported from XLabs' preflight.py: querying
+# it from inside Termux is fiddly enough that XLabs' own comments call
+# it out explicitly — pm needs --user 0 on devices with a work profile
+# or Samsung Secure Folder (a bare query fails with "Shell does not
+# have permission to access user <n>"), and stdin has to be off the
+# terminal or it trips over the character device.
+X11_APP_PACKAGE = "com.termux.x11"
+X11_APK_URL = "https://github.com/termux/termux-x11/releases/tag/nightly"
+
+
+def check_termux_x11_app() -> Issue:
+    pm = shutil.which("pm")
+    if pm is None and os.path.exists("/system/bin/pm"):
+        pm = "/system/bin/pm"
+    if pm is None:
+        return Issue("Termux:X11 app", False, "cannot query installed apps (no pm)", unknown=True)
+
+    attempts = (
+        [pm, "list", "packages", "--user", "0", X11_APP_PACKAGE],
+        [pm, "list", "packages", X11_APP_PACKAGE],
+    )
+    for argv in attempts:
+        try:
+            result = subprocess.run(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=20,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+
+        out = result.stdout or ""
+        if f"package:{X11_APP_PACKAGE}" in out:
+            return Issue("Termux:X11 app", True, "installed")
+
+        # An empty, successful query is a real answer: the app isn't
+        # there — distinct from pm refusing to answer at all.
+        lowered = out.lower()
+        refused = (
+            result.returncode != 0
+            or "exception" in lowered
+            or "denial" in lowered
+            or "does not have permission" in lowered
+        )
+        if not refused:
+            return Issue("Termux:X11 app", False, f"not installed — sideload from {X11_APK_URL}")
+
+    return Issue("Termux:X11 app", False, "pm refused the query — check manually", unknown=True)
 
 
 # --- Self-install checks ---
@@ -105,6 +178,37 @@ REQUIRED_TERMUX_PACKAGES: tuple[str, ...] = (
     "xfce4",
     "xfce4-terminal",
 )
+
+MIN_FREE_GB = 4.0  # ported from install.py's preflight() — same threshold
+
+
+def check_internet() -> Issue:
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=5).close()
+        return Issue("Internet", True, "connected")
+    except OSError:
+        return Issue("Internet", False, "no connection")
+
+
+def check_storage() -> Issue:
+    for path in ("/data", os.path.expanduser("~"), "/"):
+        try:
+            free_gb = shutil.disk_usage(path).free / (1024**3)
+        except OSError:
+            continue
+        ok = free_gb >= MIN_FREE_GB
+        detail = f"{free_gb:.1f} GB free"
+        if not ok:
+            detail += f" (recommend {MIN_FREE_GB:g}+ GB)"
+        return Issue("Storage", ok, detail)
+    return Issue("Storage", False, "could not determine free space", unknown=True)
+
+
+def check_python_version() -> Issue:
+    major, minor = sys.version_info[:2]
+    ok = (major, minor) >= (3, 10)
+    version = f"{major}.{minor}"
+    return Issue("Python", ok, version if ok else f"{version} (need 3.10+)")
 
 
 def check_textual_importable() -> Issue:
@@ -181,26 +285,19 @@ def _fix_missing_packages(missing: list[str], log: Log) -> bool:
     return result.returncode == 0
 
 
-def check_fonts() -> Issue:
-    missing = [p for p in fonts.PACKAGES if not duplicates.termux_has(p)]
-    if not missing:
-        return Issue("Fonts", True, "installed")
-    return Issue(
-        "Fonts", False, f"missing: {', '.join(missing)}",
-        fix=lambda log: fonts.install(log) and fonts.patch_terminal_font(log=log),
-    )
-
-
 NATIVE_CHECKS: tuple[Callable[[], Issue], ...] = (
     check_x11_socket,
     check_gpu_profile,
     check_audio,
     check_wakelock_binary,
     check_termux_x11_installed,
+    check_termux_x11_app,
     check_textual_importable,
     check_launcher_resolves,
     check_termux_packages,
-    check_fonts,
+    check_internet,
+    check_storage,
+    check_python_version,
 )
 
 
@@ -251,12 +348,25 @@ def check_electron(container: str) -> Issue:
     )
 
 
+def check_firefox_tuning(container: str) -> Issue:
+    if not browser.firefox_present(container):
+        return Issue(f"[{container}] Firefox tuning", True, "Firefox not installed")
+    tuned = browser.firefox_video_prefs_ok(container) and browser.firefox_safe_tuning_ok(container)
+    if tuned:
+        return Issue(f"[{container}] Firefox tuning", True, "applied")
+    return Issue(
+        f"[{container}] Firefox tuning", False, "not applied — proot overhead untuned",
+        fix=lambda log: browser.apply_firefox_tuning(container, log),
+    )
+
+
 def run_container_checks(container: str, username: str | None = None) -> list[Issue]:
     issues = [check_apt_lists(container)]
     if username:
         issues.append(check_user_uid_mapped(container, username))
     issues.append(check_duplicates(container))
     issues.append(check_electron(container))
+    issues.append(check_firefox_tuning(container))
     return issues
 
 

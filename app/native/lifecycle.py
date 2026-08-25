@@ -21,12 +21,19 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 
-from .. import config, const
+from .. import backup, config, const
 from ..android import storage as android_storage
 from . import audio, gpu, wakelock, x11
 from . import session as session_mod
 
 STORAGE_LINK_KEY = "STORAGE_LINK"
+# Re-researched from dextop 2026-08-26: its own setup always backs up the
+# home directory before proceeding, "regardless, to ensure some kind of
+# safety" (README). link_unified_home() *replaces* top-level home entries
+# — the one genuinely destructive thing this module does — so it gets the
+# same one-time safety net, gated so normal session starts don't create a
+# fresh archive every single time.
+UNIFIED_HOME_BACKUP_DONE_KEY = "UNIFIED_HOME_BACKUP_DONE"
 
 Log = Callable[[str], None]
 
@@ -46,7 +53,7 @@ class Lifecycle:
 
         wakelock.acquire(self.log)
         self._link_storage()
-        pulse_ok = audio.ensure_server(self.log)
+        pulse_ok = self._ensure_audio()
         preset = gpu.load_profile()
 
         extra_flags = x11.draw_path_flags(config.get(x11.X11_FLAGS_KEY))
@@ -59,6 +66,19 @@ class Lifecycle:
         script = session_mod.build_script(preset, pulse_ok)
         script_path = self._write_script(script)
         self._session_proc = subprocess.Popen(["bash", script_path])
+
+    def _ensure_audio(self) -> bool:
+        # Off by default (audio.is_enabled()), matching dextop's own
+        # documented default — "not recommended for use... process and
+        # cycle intensive on the device's battery and processor(s)".
+        # Previously always attempted every session; the on-device
+        # report of PulseAudio "not running" was, in part, this doing
+        # exactly that on a device where it doesn't work — now it's an
+        # explicit, logged, opt-in choice instead of a silent default.
+        if not audio.is_enabled():
+            self.log("audio disabled in Settings (default off) — skipping pulseaudio")
+            return False
+        return audio.ensure_server(self.log)
 
     def _link_storage(self) -> None:
         # Always-on, matching dextop's own default (populates
@@ -78,7 +98,23 @@ class Lifecycle:
         # replaces top-level home entries with a "Home"-labeled mount's
         # contents, so it must never run unless the user explicitly asked.
         if config.get(STORAGE_LINK_KEY) == "unified-home":
-            android_storage.link_unified_home(const.MEDIA_DIR, const.TERMUX_HOME, self.log)
+            if self._ensure_unified_home_backup():
+                android_storage.link_unified_home(const.MEDIA_DIR, const.TERMUX_HOME, self.log)
+            else:
+                self.log("skipping unified-home linking this session — backup didn't succeed")
+
+    def _ensure_unified_home_backup(self) -> bool:
+        if config.get(UNIFIED_HOME_BACKUP_DONE_KEY):
+            return True
+        self.log(
+            "unified home enabled for the first time — backing up the "
+            "current home before replacing anything in it..."
+        )
+        archive = backup.backup_native_home(log=self.log)
+        if archive is None:
+            return False
+        config.set_value(UNIFIED_HOME_BACKUP_DONE_KEY, "1")
+        return True
 
     def stop(self) -> None:
         self._kill(self._session_proc, "xfce4-session")

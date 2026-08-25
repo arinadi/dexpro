@@ -24,7 +24,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label
 
 from .. import backup as backup_mod
 from ..box import create as box_create
-from ..box import manager
+from ..box import iobench, manager
 from .common import ActionScreen, ConfirmScreen
 from .export_screen import ExportScreen
 from .store import StoreScreen
@@ -76,6 +76,7 @@ class BoxManagerScreen(Screen):
                 yield Button("Export", id="export")
                 yield Button("Store", id="store")
                 yield Button("Backup", id="backup")
+                yield Button("IO Bench", id="iobench")
                 yield Button("Remove", id="remove", variant="error")
                 yield Button("Refresh", id="refresh")
                 yield Button("Back", id="back")
@@ -116,6 +117,8 @@ class BoxManagerScreen(Screen):
             self._store_selected()
         elif event.button.id == "backup":
             self._backup_selected()
+        elif event.button.id == "iobench":
+            self._iobench_selected()
 
     def action_back(self) -> None:
         self.app.pop_screen()
@@ -144,6 +147,23 @@ class BoxManagerScreen(Screen):
             return backup_mod.backup_container(name, log=logger)
 
         self.app.push_screen(ActionScreen(f"Backing up {name}", _run))
+
+    def _iobench_selected(self) -> None:
+        # Proot-only: measures whether isolation.py's --isolated preset
+        # (fewer Android/host bind-mounts for proot's ptrace layer to
+        # resolve) is actually faster for THIS container's workload —
+        # never applies to the native session, which has no proot
+        # involvement at all.
+        name = self._selected_name()
+        if name is None:
+            self.notify("Select a container first.", severity="warning")
+            return
+
+        def _run(logger):
+            iobench.run(name, log=logger)
+            return True
+
+        self.app.push_screen(ActionScreen(f"IO benchmark: {name}", _run))
 
     async def _remove_selected(self) -> None:
         name = self._selected_name()

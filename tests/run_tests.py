@@ -24,8 +24,11 @@ from test_android_storage import TESTS as ANDROID_STORAGE_TESTS
 from test_audio import TESTS as AUDIO_TESTS
 from test_backup import TESTS as BACKUP_TESTS
 from test_backup_screen import TESTS as BACKUP_SCREEN_TESTS
+from test_box_browser import TESTS as BOX_BROWSER_TESTS
 from test_box_create import TESTS as BOX_CREATE_TESTS
 from test_box_export import TESTS as BOX_EXPORT_TESTS
+from test_box_iobench import TESTS as BOX_IOBENCH_TESTS
+from test_box_isolation import TESTS as BOX_ISOLATION_TESTS
 from test_box_manager import TESTS as BOX_MANAGER_TESTS
 from test_box_manager_screen import TESTS as BOX_MANAGER_SCREEN_TESTS
 from test_box_mirror import TESTS as BOX_MIRROR_TESTS
@@ -45,6 +48,7 @@ from test_native_packages import TESTS as NATIVE_PACKAGES_TESTS
 from test_session import TESTS as SESSION_TESTS
 from test_settings_screen import TESTS as SETTINGS_SCREEN_TESTS
 from test_store_screen import TESTS as STORE_SCREEN_TESTS
+from test_termux_appearance import TESTS as TERMUX_APPEARANCE_TESTS
 from test_termux_store_screen import TESTS as TERMUX_STORE_SCREEN_TESTS
 from test_wakelock import TESTS as WAKELOCK_TESTS
 from test_x11 import TESTS as X11_TESTS
@@ -64,6 +68,9 @@ ALL_TESTS = [
     *BOX_USER_TESTS,
     *BOX_PACKAGES_TESTS,
     *BOX_EXPORT_TESTS,
+    *BOX_ISOLATION_TESTS,
+    *BOX_IOBENCH_TESTS,
+    *BOX_BROWSER_TESTS,
     *BOX_MIRROR_TESTS,
     *NATIVE_PACKAGES_TESTS,
     *DOCTOR_CHECKS_TESTS,
@@ -81,6 +88,7 @@ ALL_TESTS = [
     *BACKUP_SCREEN_TESTS,
     *SETTINGS_SCREEN_TESTS,
     *STORE_SCREEN_TESTS,
+    *TERMUX_APPEARANCE_TESTS,
     *TERMUX_STORE_SCREEN_TESTS,
 ]
 

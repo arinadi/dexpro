@@ -291,9 +291,13 @@ def add_custom_repo(
         f"echo 'deb [signed-by={keyring_path}] {uri} stable main' "
         f"> /etc/apt/sources.list.d/dexpro-{name}.list"
     )
+    if log:
+        log(f"adding repo {name!r} ({uri}) to '{container}'")
     full = manager.login_command(container, ["sh", "-c", script])
     try:
         subprocess.run(full, capture_output=True, timeout=30, check=True)
+        if log:
+            log("done")
         return True
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         if log:

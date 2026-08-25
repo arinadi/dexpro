@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from support import check, run
 
+from app import const
 from app.doctor import checks
+from app.native import audio
 
 
 def test_check_x11_socket_reports_not_ok_when_absent() -> None:
@@ -29,7 +32,36 @@ def test_check_gpu_profile_defaults_to_software_and_is_ok() -> None:
     check("software" in issue.detail, f"expected the software profile mentioned: {issue.detail!r}")
 
 
-def test_check_audio_is_a_read_only_probe() -> None:
+def _isolated_config(test):
+    def wrapper():
+        original = const.CONFIG_FILE
+        fd, path = tempfile.mkstemp(suffix=".env")
+        os.close(fd)
+        os.remove(path)
+        const.CONFIG_FILE = path
+        try:
+            test()
+        finally:
+            const.CONFIG_FILE = original
+            if os.path.exists(path):
+                os.remove(path)
+
+    wrapper.__name__ = test.__name__
+    return wrapper
+
+
+@_isolated_config
+def test_check_audio_is_ok_when_disabled_by_default() -> None:
+    # Off is the deliberate default (dextop's own — battery/CPU cost),
+    # not a fault: a fresh install must not show a red "not ok" for the
+    # expected, unconfigured state.
+    issue = checks.check_audio()
+    check(issue.ok, "disabled-by-default audio must not be flagged as broken")
+    check(issue.fix is None, "nothing to fix when it's off on purpose")
+
+
+@_isolated_config
+def test_check_audio_is_a_read_only_probe_when_enabled() -> None:
     # Confirmed on-device (Podman container): `pactl info` autospawns a
     # PulseAudio daemon as a side effect of merely checking whether one
     # is running — that's the opposite of what a Doctor status check
@@ -37,10 +69,11 @@ def test_check_audio_is_a_read_only_probe() -> None:
     # report the same thing both times, not "start" something on the
     # first call. (Whether PulseAudio happens to already be running on
     # this host isn't asserted either way — that varies by environment.)
+    audio.set_enabled(True)
     first = checks.check_audio()
     second = checks.check_audio()
     check(first.ok == second.ok, "check_audio() must not change system state just by running")
-    check(first.fix is not None, "audio should be auto-fixable (ensure_server)")
+    check(first.fix is not None, "enabled audio should be auto-fixable (ensure_server)")
 
 
 def test_check_wakelock_binary_reports_a_definite_bool() -> None:
@@ -60,6 +93,34 @@ def test_check_termux_x11_installed_reports_not_ok_when_absent() -> None:
     issue = checks.check_termux_x11_installed()
     check(issue.ok is False, "termux-x11 isn't installed here")
     check(not issue.unknown, "an absent package is a definite not-ok, not an unknown")
+
+
+def test_check_termux_x11_app_reports_a_definite_bool() -> None:
+    # No `pm` binary on this Windows dev machine — must resolve to the
+    # "cannot query" unknown branch, not raise or hang.
+    issue = checks.check_termux_x11_app()
+    check(isinstance(issue.ok, bool), "ok must be a definite bool")
+    check(issue.unknown, "no pm binary here — must be reported as unknown, not a false miss")
+
+
+def test_check_internet_reports_connected_on_this_dev_machine() -> None:
+    # This dev machine has real internet — same live-network tolerance
+    # test_box_mirror.py already uses elsewhere in this suite.
+    issue = checks.check_internet()
+    check(isinstance(issue.ok, bool), "ok must be a definite bool")
+    check(issue.fix is None, "connectivity isn't something Doctor can fix by itself")
+
+
+def test_check_storage_reports_a_definite_bool() -> None:
+    issue = checks.check_storage()
+    check(isinstance(issue.ok, bool) or issue.unknown, f"got {issue!r}")
+    check(issue.fix is None, "free space isn't something Doctor can fix by itself")
+
+
+def test_check_python_version_is_ok_here() -> None:
+    # This project's own venv is 3.10+ by requirement (pyproject.toml).
+    issue = checks.check_python_version()
+    check(issue.ok, f"expected this venv's Python to satisfy 3.10+, got {issue!r}")
 
 
 def test_run_native_checks_returns_one_issue_per_check() -> None:
@@ -104,13 +165,6 @@ def test_check_termux_packages_reports_a_definite_bool() -> None:
         check(issue.fix is not None, "missing packages should be auto-fixable via pkg install")
 
 
-def test_check_fonts_reports_a_definite_bool() -> None:
-    issue = checks.check_fonts()
-    check(isinstance(issue.ok, bool), "ok must be a definite bool")
-    if not issue.ok:
-        check(issue.fix is not None, "missing fonts should be auto-fixable")
-
-
 def test_check_duplicates_reports_ok_for_nonexistent_container() -> None:
     # No proot-distro/manager.login_command target exists here — the
     # underlying subprocess calls fail gracefully, so no duplicates are
@@ -122,6 +176,13 @@ def test_check_duplicates_reports_ok_for_nonexistent_container() -> None:
 def test_check_electron_reports_ok_for_nonexistent_container() -> None:
     issue = checks.check_electron("definitely-not-a-real-container")
     check(issue.ok, "nothing can be detected as unpatched without a real container")
+
+
+def test_check_firefox_tuning_reports_ok_for_nonexistent_container() -> None:
+    # No rootfs to check firefox_present() against — treated the same
+    # as "Firefox not installed", which is a true ok, not a crash.
+    issue = checks.check_firefox_tuning("definitely-not-a-real-container")
+    check(issue.ok, "no container means no Firefox to tune, which is a true ok")
 
 
 def test_run_all_checks_includes_native_and_per_container() -> None:
@@ -136,15 +197,20 @@ def test_run_all_checks_includes_native_and_per_container() -> None:
 TESTS = [
     test_check_x11_socket_reports_not_ok_when_absent,
     test_check_gpu_profile_defaults_to_software_and_is_ok,
-    test_check_audio_is_a_read_only_probe,
+    test_check_audio_is_ok_when_disabled_by_default,
+    test_check_audio_is_a_read_only_probe_when_enabled,
     test_check_wakelock_binary_reports_a_definite_bool,
     test_check_termux_x11_installed_reports_not_ok_when_absent,
+    test_check_termux_x11_app_reports_a_definite_bool,
+    test_check_internet_reports_connected_on_this_dev_machine,
+    test_check_storage_reports_a_definite_bool,
+    test_check_python_version_is_ok_here,
     test_check_textual_importable_is_ok_here,
     test_check_launcher_resolves_reports_a_definite_bool_when_absent,
     test_check_termux_packages_reports_a_definite_bool,
-    test_check_fonts_reports_a_definite_bool,
     test_check_duplicates_reports_ok_for_nonexistent_container,
     test_check_electron_reports_ok_for_nonexistent_container,
+    test_check_firefox_tuning_reports_ok_for_nonexistent_container,
     test_run_native_checks_returns_one_issue_per_check,
     test_container_rootfs_path_is_none_for_nonexistent_container,
     test_check_user_uid_mapped_is_unknown_when_rootfs_missing,

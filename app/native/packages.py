@@ -124,8 +124,15 @@ def uninstall(names: list[str], log: Log | None = None) -> bool:
 
 
 def _run(command: list[str], timeout: float, log: Log | None) -> bool:
+    # Reported live as an empty log window on Enable/Install/Uninstall:
+    # this previously only ever called log() on failure, so a successful
+    # run showed nothing at all — no announced command, no confirmation.
+    if log:
+        log(f"$ {' '.join(command)}")
     try:
         subprocess.run(command, capture_output=True, timeout=timeout, check=True, text=True)
+        if log:
+            log("done")
         return True
     except subprocess.CalledProcessError as exc:
         if log:

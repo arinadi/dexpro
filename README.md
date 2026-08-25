@@ -23,7 +23,7 @@ This project was developed without access to Termux or an Android device — see
 curl -sL https://raw.githubusercontent.com/arinadi/dexpro/master/install.sh | bash
 ```
 
-`install.sh` bootstraps git/python, checks out the repo, and hands off to `install.py`, which installs the Termux packages the native session needs (`x11-repo`, `tur-repo`, `termux-x11-nightly`, `virglrenderer-android`, `pulseaudio`, `dbus`, `xfce4`, `xfce4-terminal`) and links the `dexpro` launcher onto `PATH`.
+`install.sh` bootstraps git/python, checks out the repo, and hands off to `install.py`, which checks the environment (internet, storage, Python version — fatal only on no internet), installs the Termux packages the native session needs (`x11-repo`, `tur-repo`, `termux-x11-nightly`, `virglrenderer-android`, `pulseaudio`, `dbus`, `xfce4`, `xfce4-terminal`, an icon theme, and media codec packages), and links the `dexpro` launcher onto `PATH`.
 
 ## Usage
 
@@ -35,10 +35,10 @@ dexpro
 |---|---|
 | Start / Stop | Native desktop session lifecycle (wake-lock → audio → GPU profile → X11 → session) |
 | Update | Whole-repo `git pull --ff-only` (falls back to `fetch` + `reset --hard origin/master`), with a Restart button to relaunch on the new code |
-| Boxes | Create / enter / export / backup / remove `dexpro-box` containers |
-| Doctor | Native + per-container health checks (including dexpro's own install health — Textual importable, launcher resolves, required Termux packages present — plus duplicate-tool, Electron `--no-sandbox`, and font checks), with a Fix-all action |
+| Boxes | Create / enter / export / backup / remove `dexpro-box` containers, plus an IO Bench to measure whether proot's `--isolated` flag (fewer Android/host bind-mounts) is actually faster for a given container's workload |
+| Doctor | Native + per-container health checks (dexpro's own install health — Textual importable, launcher resolves, required Termux packages present; environment — internet, storage, Python version, the Termux:X11 Android app itself; plus duplicate-tool, Electron `--no-sandbox`, and Firefox proot-tuning checks), with a Fix-all action |
 | Backup | Lists every backup (native + per-container) with Backup / Restore / Delete |
-| Settings | Real, live-editable choices — GPU profile, storage link mode, termux-x11 rendering — saved immediately on change, plus a working Uninstall |
+| Settings | Real, live-editable choices — GPU profile, storage link mode (backed up automatically the first time it's enabled), termux-x11 rendering, audio (off by default, matching dextop) — saved immediately on change; a Termux terminal font applier (copies a `.ttf` you already have to `~/.termux/font.ttf`, the real Termux mechanism); plus a working Uninstall |
 | Store | Curated packages + search, install/uninstall, Mirror picking, and adding custom repos — all per selected `dexpro-box` container |
 | Termux | Search/install/uninstall Termux's own packages (not a container's), plus a Repos screen to enable community repos (`tur-repo` and others) |
 

@@ -15,6 +15,8 @@ import re
 import subprocess
 from collections.abc import Callable
 
+from . import isolation
+
 Log = Callable[[str], None]
 
 BINARY = "proot-distro"
@@ -90,8 +92,12 @@ def check_version(log: Log | None = None) -> bool:
 
 
 def install(image: str, name: str, log: Log | None = None) -> bool:
+    if log:
+        log(f"$ proot-distro install {image} --name {name}")
     try:
         _run(["install", image, "--name", name], timeout=600)
+        if log:
+            log("done")
         return True
     except subprocess.CalledProcessError as exc:
         if log:
@@ -104,8 +110,12 @@ def install(image: str, name: str, log: Log | None = None) -> bool:
 
 
 def remove(name: str, log: Log | None = None) -> bool:
+    if log:
+        log(f"$ proot-distro remove {name}")
     try:
         _run(["remove", name], timeout=60)
+        if log:
+            log("done")
         return True
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         if log:
@@ -114,8 +124,12 @@ def remove(name: str, log: Log | None = None) -> bool:
 
 
 def rename(name: str, new_name: str, log: Log | None = None) -> bool:
+    if log:
+        log(f"$ proot-distro rename {name} {new_name}")
     try:
         _run(["rename", name, new_name], timeout=60)
+        if log:
+            log("done")
         return True
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         if log:
@@ -151,8 +165,12 @@ def search(query: str, log: Log | None = None) -> str:
 
 
 def backup(name: str, output: str, compression: str = "zstd", log: Log | None = None) -> bool:
+    if log:
+        log(f"$ proot-distro backup {name} -o {output} -c {compression}")
     try:
         _run(["backup", name, "-o", output, "-c", compression], timeout=600)
+        if log:
+            log("done")
         return True
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         if log:
@@ -161,8 +179,12 @@ def backup(name: str, output: str, compression: str = "zstd", log: Log | None = 
 
 
 def restore(archive: str, log: Log | None = None) -> bool:
+    if log:
+        log(f"$ proot-distro restore {archive}")
     try:
         _run(["restore", archive], timeout=600)
+        if log:
+            log("done")
         return True
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         if log:
@@ -176,15 +198,25 @@ def login_command(
     *,
     user: str | None = None,
     shared_tmp: bool = False,
+    isolation_preset: isolation.Preset | None = None,
 ) -> list[str]:
     """Builds (but does not run) the proot-distro login invocation —
     exposed separately so callers (box/user.py, box/packages.py,
-    box/create.py) can run it with their own timeout/stdin handling."""
+    box/create.py) can run it with their own timeout/stdin handling.
+
+    Applies the container's saved isolation preset (isolation.py) by
+    default, so every existing caller benefits automatically without
+    having to look it up itself — the one exception is iobench.py,
+    which passes isolation_preset explicitly to test each candidate in
+    turn rather than whatever is currently saved.
+    """
     args = [BINARY, "login", name]
     if user:
         args += ["--user", user]
     if shared_tmp:
         args.append("--shared-tmp")
+    preset = isolation_preset if isolation_preset is not None else isolation.load_preset(name)
+    args += list(preset.flags)
     if command:
         args += ["--", *command]
     return args
