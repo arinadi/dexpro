@@ -86,6 +86,32 @@ block Start Desktop on (the delay resolves on its own, and blocking
 would just move the wait rather than remove it) — added
 _warn_if_sink_not_warmed_up() so the log explains what's happening
 instead of looking finished while audio quietly isn't ready yet.
+
+2026-08-26 (later still): "aneh pulseaudio sangat random... volume
+control stuck loading sudah 30menit" — a Stop then Start left the volume
+control stuck for 30 minutes, far beyond the few-seconds warmup delay
+above. Researched properly rather than guessing again: this matches a
+real, unresolved upstream Termux bug (termux/termux-packages#19861,
+"PulseAudio hangs after a random amount of time") — the daemon can wedge
+unresponsive, and per that thread, `pulseaudio -k`/`--kill` (a protocol-
+level shutdown *request*) can fail to terminate a wedged instance at
+all; only a real SIGKILL does. One reporter on that same issue, on a
+Samsung device (this project's own device), specifically traced it to
+`module-suspend-on-idle` (loaded by default) and fixed it by disabling
+that module — not universal (another reporter tried it and still hung),
+but a real, evidence-backed mitigation, not a guess.
+
+User: "hapus pulseaudio --kill selalu gagal. gunakan force kill seperti
+xlabs" — confirmed `--kill` was failing here too. Fixed:
+- `stop_server()` no longer uses `pulseaudio --kill` at all — switched
+  to `native.proc.kill_pattern()`, a real OS-level TERM-then-SIGKILL
+  escalation against the process itself (the same mechanism XLabs uses
+  for every one of its own kill targets), not a protocol-level request
+  that assumes the daemon is healthy enough to honor it.
+- New `_disable_suspend_on_idle()`: `pactl unload-module
+  module-suspend-on-idle` right after the daemon starts (both the
+  already-running and just-started paths), rather than editing
+  PulseAudio's own default.pa.
 """
 
 from __future__ import annotations
@@ -95,12 +121,12 @@ import os
 import shutil
 import struct
 import subprocess
-import time
 import wave
 from collections.abc import Callable
 
 from .. import config, const
 from . import packages as native_packages
+from . import proc
 
 Log = Callable[[str], None]
 
@@ -163,6 +189,35 @@ def is_running() -> bool:
         return False
 
 
+def _disable_suspend_on_idle(log: Log | None = None) -> None:
+    """Real, credible mitigation for a known, unresolved upstream Termux
+    bug (termux/termux-packages#19861): PulseAudio can wedge into an
+    unresponsive state — confirmed there specifically on a Samsung
+    device (same profile as this project's own report) to be triggered
+    by the `module-suspend-on-idle` module, loaded by default, which
+    suspends/resumes sinks when idle. A user on that same issue confirmed
+    commenting out its load-module line in default.pa fixed the hang for
+    them (though NOT universally — another reporter tried it and the
+    hang persisted, so this is a real, evidence-backed mitigation, not a
+    guaranteed fix).
+
+    Unloaded via `pactl` right after the daemon starts, rather than
+    editing PulseAudio's own default.pa: doesn't touch the pulseaudio
+    package's own config file (which a future package update could
+    silently overwrite anyway), and is a no-op, not an error, if the
+    module was never loaded in the first place.
+    """
+    try:
+        subprocess.run(
+            ["pactl", "unload-module", "module-suspend-on-idle"],
+            capture_output=True,
+            timeout=5,
+            env=_pulse_env(),
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+
 def _warn_if_sink_not_warmed_up(log: Log | None) -> None:
     """The daemon process being alive isn't the same as its audio
     backend actually being ready. Confirmed live on a Samsung device:
@@ -185,6 +240,7 @@ def _warn_if_sink_not_warmed_up(log: Log | None) -> None:
 
 def ensure_server(log: Log | None = None) -> bool:
     if is_running():
+        _disable_suspend_on_idle(log)
         _warn_if_sink_not_warmed_up(log)
         return True
     if not native_packages.ensure_binary("pulseaudio", "pulseaudio", log):
@@ -225,43 +281,31 @@ def ensure_server(log: Log | None = None) -> bool:
         log(f"warning: pulseaudio --start exited {result.returncode}: {result.stderr.strip()}")
     started = is_running()
     if started:
+        _disable_suspend_on_idle(log)
         _warn_if_sink_not_warmed_up(log)
     return started
 
 
 def stop_server(log: Log | None = None) -> None:
-    """Matches XLabs' stop_desktop(): `pulseaudio --kill` is the
-    supported clean shutdown (unloads its own modules), rather than
-    leaving the daemon — or a stale socket after it dies on its own —
-    around into the next session. A no-op, not an error, when nothing
-    is running.
+    """A no-op, not an error, when nothing is running.
 
-    2026-08-26: a real device report — audio worked, then vanished again
-    after a Stop + Start cycle — traced to a race this function itself
-    caused: `pulseaudio --kill` sends the shutdown request but doesn't
-    block until the daemon has actually exited. Lifecycle.start() always
-    runs stop() first, and its own ensure_server() checks is_running()
-    before deciding whether to start a fresh daemon — if that check ran
-    while the *old* instance was still mid-shutdown, it could read as
-    "already running" and skip starting a new one, leaving nothing once
-    the old one actually finished dying moments later. Now blocks (up to
-    5s) until is_running() genuinely reports gone, matching the same
-    "verify, don't just assume" principle lifecycle.py's own `_kill()`
-    already uses for the session process.
+    2026-08-26: originally used `pulseaudio --kill` (PulseAudio's own
+    "polite", protocol-level shutdown request) — but that's exactly the
+    mechanism a real, documented, unresolved upstream bug
+    (termux/termux-packages#19861) reports as unreliable: PulseAudio can
+    wedge into an unresponsive state where neither `pulseaudio -k` nor a
+    plain signal terminates it — "the only way to get rid of it is via
+    kill -9". User confirmed `--kill` was failing here too. Switched to
+    native.proc.kill_pattern() — a real OS-level TERM-then-SIGKILL
+    escalation against the process itself, the same mechanism XLabs uses
+    for every one of its own kill targets, never a protocol-level
+    request that assumes the daemon is healthy enough to honor it.
     """
     if not is_running():
         return
-    if log:
-        log("$ pulseaudio --kill")
-    try:
-        subprocess.run(["pulseaudio", "--kill"], capture_output=True, timeout=10, env=_pulse_env())
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline and is_running():
-        time.sleep(0.2)
+    proc.kill_pattern("pulseaudio", log)
     if is_running() and log:
-        log("warning: pulseaudio did not stop within 5s")
+        log("warning: pulseaudio did not stop even after SIGKILL")
 
 
 # ── Test tone (ported from XLabs' audio.py test()) ────────────

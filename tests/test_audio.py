@@ -79,6 +79,39 @@ def test_set_enabled_round_trips() -> None:
     check(audio.is_enabled() is False, "set_enabled(False) must persist and clear the key")
 
 
+def test_disable_suspend_on_idle_calls_pactl_unload_module() -> None:
+    # Real, evidence-backed mitigation (termux/termux-packages#19861,
+    # confirmed on a Samsung device — same profile as this project's
+    # own report) for PulseAudio wedging unresponsive after a while.
+    import subprocess
+    from unittest import mock
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    with mock.patch.object(audio.subprocess, "run", side_effect=fake_run):
+        audio._disable_suspend_on_idle(log=lambda _msg: None)
+    check(
+        calls == [["pactl", "unload-module", "module-suspend-on-idle"]],
+        f"got {calls!r}",
+    )
+
+
+def test_ensure_server_disables_suspend_on_idle_when_already_running() -> None:
+    from unittest import mock
+
+    calls = []
+    with mock.patch.object(audio, "is_running", return_value=True):
+        with mock.patch.object(
+            audio, "_disable_suspend_on_idle", side_effect=lambda log: calls.append(1)
+        ):
+            audio.ensure_server(log=lambda _msg: None)
+    check(len(calls) == 1, "must disable suspend-on-idle on the already-running path too")
+
+
 def test_warn_if_sink_not_warmed_up_logs_when_no_sink_yet() -> None:
     # Real device report: audio works, but right after Start Desktop the
     # volume control loads slowly and playback is silent until it does —
@@ -183,63 +216,33 @@ def test_stop_server_is_a_noop_when_nothing_is_running() -> None:
     audio.stop_server(log=lambda _msg: None)
 
 
-def test_stop_server_kills_and_logs_when_running() -> None:
-    # Matches XLabs' stop_desktop(): `pulseaudio --kill` is the clean
-    # shutdown path, called whenever a daemon is actually up.
+def test_stop_server_delegates_to_proc_kill_pattern_when_running() -> None:
+    # 2026-08-26: `pulseaudio --kill` (a protocol-level shutdown request)
+    # is exactly the mechanism a real, unresolved upstream Termux bug
+    # (termux/termux-packages#19861) reports as unreliable against a
+    # wedged daemon -- user confirmed it failing here too. Switched to a
+    # real OS-level TERM-then-SIGKILL escalation via native.proc, the
+    # same mechanism XLabs uses for every one of its own kill targets.
     from unittest import mock
 
-    messages: list[str] = []
     calls = []
-
-    def fake_run(cmd, **kwargs):
-        import subprocess as sp
-
-        calls.append(cmd)
-        return sp.CompletedProcess(cmd, 0)
-
-    # True once (the initial check), then False (it actually died, both
-    # for the poll loop's own check and the final not-yet-dead check) —
-    # exercises the real shutdown path without waiting out the real 5s
-    # poll timeout below.
-    with mock.patch.object(audio, "is_running", side_effect=[True, False, False]):
-        with mock.patch.object(audio.subprocess, "run", side_effect=fake_run):
-            audio.stop_server(log=messages.append)
-    check(calls == [["pulseaudio", "--kill"]], f"got {calls!r}")
-    check(any("pulseaudio --kill" in m for m in messages), f"got {messages!r}")
-
-
-def test_stop_server_waits_for_the_daemon_to_actually_die() -> None:
-    # Real bug found live: audio worked, then vanished after a Stop +
-    # Start cycle. `pulseaudio --kill` doesn't block until the daemon
-    # has actually exited — stop_server() must poll is_running() rather
-    # than trusting the kill command returned, or the very next
-    # ensure_server() call can see the OLD, dying instance as "still
-    # running" and skip starting a fresh one.
-    from unittest import mock
-
-    with mock.patch.object(audio, "is_running", side_effect=[True, True, True, False, False]):
-        with mock.patch.object(audio.subprocess, "run", return_value=None):
-            with mock.patch.object(audio.time, "sleep"):
-                audio.stop_server(log=lambda _msg: None)
-    # No assertion needed beyond "this returns" — a version that just
-    # trusted `pulseaudio --kill`'s return would never re-check
-    # is_running() at all, so the mocked side_effect sequence above
-    # (three Trues before the final False) would never be exhausted;
-    # StopIteration would propagate here if that regressed.
+    with mock.patch.object(audio, "is_running", return_value=True):
+        with mock.patch.object(
+            audio.proc,
+            "kill_pattern",
+            side_effect=lambda p, log=None: calls.append(p) or True,
+        ):
+            audio.stop_server(log=lambda _msg: None)
+    check(calls == ["pulseaudio"], f"got {calls!r}")
 
 
 def test_stop_server_logs_a_warning_if_it_never_actually_stops() -> None:
     from unittest import mock
 
     messages: list[str] = []
-    # First monotonic() call sets the deadline; the second (the while
-    # check) is already past it — exits the poll loop immediately
-    # instead of really waiting out the full 5s.
     with mock.patch.object(audio, "is_running", return_value=True):
-        with mock.patch.object(audio.subprocess, "run", return_value=None):
-            with mock.patch.object(audio.time, "sleep"):
-                with mock.patch.object(audio.time, "monotonic", side_effect=[0, 100]):
-                    audio.stop_server(log=messages.append)
+        with mock.patch.object(audio.proc, "kill_pattern", return_value=False):
+            audio.stop_server(log=messages.append)
     check(
         any("did not stop" in m for m in messages),
         f"expected a warning when the daemon never actually stops, got {messages!r}",
@@ -316,9 +319,10 @@ TESTS = [
     test_ensure_server_preloads_libskcodec_on_samsung,
     test_ensure_server_skips_preload_when_library_missing,
     test_stop_server_is_a_noop_when_nothing_is_running,
-    test_stop_server_kills_and_logs_when_running,
-    test_stop_server_waits_for_the_daemon_to_actually_die,
+    test_stop_server_delegates_to_proc_kill_pattern_when_running,
     test_stop_server_logs_a_warning_if_it_never_actually_stops,
+    test_disable_suspend_on_idle_calls_pactl_unload_module,
+    test_ensure_server_disables_suspend_on_idle_when_already_running,
     test_pulse_env_pins_xdg_runtime_dir_to_the_shared_constant,
     test_is_enabled_defaults_to_off,
     test_set_enabled_round_trips,
