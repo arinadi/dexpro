@@ -214,6 +214,10 @@ def check_termux_x11_app() -> Issue:
 REQUIRED_TERMUX_PACKAGES: tuple[str, ...] = (
     "termux-x11-nightly",
     "virglrenderer-android",
+    "virglrenderer-mesa-zink",
+    "mesa-zink",
+    "vulkan-loader-android",
+    "mesa-vulkan-icd-freedreno-dri3",
     "pulseaudio",
     "dbus",
     "xfce4",

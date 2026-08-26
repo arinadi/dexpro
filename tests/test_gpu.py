@@ -60,6 +60,41 @@ def test_adreno_only_presets_are_flagged() -> None:
     check(not software.adreno_only, "software must always be a candidate")
 
 
+def test_virgl_preset_uses_the_zink_capable_server_not_android_variant() -> None:
+    # Regression test for a real correction: bare virgl_test_server_android
+    # scored "Error" on every native-Termux run in LinuxDroidMaster/
+    # Termux-Desktops' own tested results — the working combination uses
+    # virgl_test_server (from virglrenderer-mesa-zink) with zink-flavored
+    # server env, same virpipe client.
+    virgl = gpu.preset_by_name("virgl")
+    check(virgl.server == "virgl_test_server", f"got {virgl.server!r}")
+    check("virgl_test_server_android" != virgl.server, "must not be the broken android variant")
+    check(virgl.env.get("MESA_GL_VERSION_OVERRIDE") == "4.0", f"got {virgl.env!r}")
+    check(virgl.server_env.get("GALLIUM_DRIVER") == "zink", f"got {virgl.server_env!r}")
+    check(
+        gpu._BINARY_PACKAGES.get("virgl_test_server") == "virglrenderer-mesa-zink",
+        f"got {gpu._BINARY_PACKAGES.get('virgl_test_server')!r}",
+    )
+
+
+def test_zink_preset_uses_the_direct_client_command_not_server_flavor() -> None:
+    # The old env here was actually virgl's *server*-side zink flavor,
+    # mistakenly applied as this preset's own client env.
+    zink = gpu.preset_by_name("zink")
+    check(
+        zink.env == {"GALLIUM_DRIVER": "zink", "MESA_GL_VERSION_OVERRIDE": "4.0"},
+        f"got {zink.env!r}",
+    )
+    check(zink.server is None, "the direct zink client needs no renderer process")
+
+
+def test_turnip_preset_has_no_proot_only_tu_debug_flag() -> None:
+    # TU_DEBUG=noconform is documented for the *proot* Turnip invocation
+    # only; native Termux's own Turnip section doesn't use it.
+    turnip = gpu.preset_by_name("turnip")
+    check("TU_DEBUG" not in turnip.env, f"got {turnip.env!r}")
+
+
 def test_candidates_excludes_adreno_only_on_mali() -> None:
     names = [p.name for p in gpu.candidates(vendor="mali")]
     check("zink" not in names, "zink offered on a non-Adreno device")
@@ -171,15 +206,15 @@ def test_start_renderer_is_a_noop_when_preset_needs_no_server() -> None:
 def test_start_renderer_launches_and_confirms_virgl_server() -> None:
     # Regression test for a real reported bug: "lost connection to
     # rendering server on 8 read -1 22" — nothing ever launched
-    # virgl_test_server_android as a background process before glmark2
-    # tried to connect to it.
+    # virgl_test_server as a background process before glmark2 tried to
+    # connect to it.
     import subprocess
 
     popen_calls = []
 
     class FakePopen:
         def __init__(self, args, **kwargs):
-            popen_calls.append(args)
+            popen_calls.append((args, kwargs.get("env")))
 
     with mock.patch.object(gpu.native_packages, "ensure_binary", return_value=True):
         with mock.patch.object(gpu.subprocess, "Popen", side_effect=FakePopen):
@@ -191,7 +226,16 @@ def test_start_renderer_launches_and_confirms_virgl_server() -> None:
                 ):
                     ok = gpu._start_renderer(gpu.preset_by_name("virgl"), None)
     check(ok is True, "must report the renderer as up when pgrep confirms it")
-    check(popen_calls == [["virgl_test_server_android"]], f"got {popen_calls!r}")
+    check(len(popen_calls) == 1, f"expected exactly one Popen call, got {popen_calls!r}")
+    args, env = popen_calls[0]
+    check(
+        args == ["virgl_test_server", "--use-egl-surfaceless", "--use-gles"],
+        f"got {args!r}",
+    )
+    check(
+        env is not None and env.get("GALLIUM_DRIVER") == "zink",
+        f"expected server_env, got {env!r}",
+    )
 
 
 def test_start_renderer_reports_when_server_does_not_stay_running() -> None:
@@ -227,6 +271,9 @@ def test_bench_reports_no_candidate_summary() -> None:
 TESTS = [
     test_presets_are_coherent,
     test_adreno_only_presets_are_flagged,
+    test_virgl_preset_uses_the_zink_capable_server_not_android_variant,
+    test_zink_preset_uses_the_direct_client_command_not_server_flavor,
+    test_turnip_preset_has_no_proot_only_tu_debug_flag,
     test_candidates_excludes_adreno_only_on_mali,
     test_candidates_excludes_adreno_only_on_unknown_vendor,
     test_candidates_includes_adreno_only_on_adreno,

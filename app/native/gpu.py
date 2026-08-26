@@ -57,6 +57,38 @@ being *running*. Added Preset.server + _start_renderer()/_stop_renderer()
 (Popen the renderer, wait, confirm via pgrep, always pkill it in a
 `finally` after the client runs) — ported from XLabs' own
 _start_renderer(), which does exactly this for the same reason.
+
+2026-08-26 (later still): user shared LinuxDroidMaster/Termux-Desktops'
+own HardwareAcceleration.md — real, community-tested glmark2 scores for
+both proot AND native Termux specifically. Cross-checking it against
+this module's PRESETS surfaced real mismatches, not guesses:
+- The "virgl" preset (bare ``virgl_test_server_android`` server,
+  ``GALLIUM_DRIVER=virpipe`` client) is exactly the combination that
+  doc's own native-Termux testing scored "Error" on every single run
+  (5/5) — not a flaky failure, a consistently broken combination on
+  native Termux specifically (their proot table shows the same
+  combination *does* work there, 70-77). The combination that actually
+  scores (92-93, their "VIRGL ZINK" row) uses a *different* server
+  binary — ``virgl_test_server`` (from package virglrenderer-mesa-zink,
+  confirmed via termux-user-repository/tur, not virglrenderer-android)
+  started with zink-flavored server env — with the *same* virpipe client
+  command, now also carrying the previously-missing
+  ``MESA_GL_VERSION_OVERRIDE=4.0``. Preset gained `server_args`/
+  `server_env` (server-side CLI flags/env, distinct from the client's
+  own `env`) to express this.
+- The "zink" preset's env was actually the *server*-side zink flavor
+  from the combination above, mistakenly applied as this preset's own
+  *client* env. Corrected to the doc's own direct, no-server zink client
+  command (``GALLIUM_DRIVER=zink MESA_GL_VERSION_OVERRIDE=4.0``), which
+  the doc's own native-Termux results score highest of every non-Turnip
+  option (121-124).
+- "turnip" dropped ``TU_DEBUG=noconform``: the doc lists that flag only
+  for the *proot* Turnip invocation; its separate native-Termux Turnip
+  section uses just ``MESA_LOADER_DRIVER_OVERRIDE=zink``.
+- install.py's package list was missing ``mesa-zink``,
+  ``virglrenderer-mesa-zink``, ``vulkan-loader-android`` (all four
+  packages the doc says are needed together for native Termux hardware
+  acceleration) and ``mesa-vulkan-icd-freedreno-dri3`` (Turnip) —added.
 """
 
 from __future__ import annotations
@@ -67,7 +99,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .. import config
 from . import packages as native_packages
@@ -94,29 +126,59 @@ class Preset:
     # process — glmark2 alone was never going to find anything to
     # connect to.
     server: str | None = None
+    server_args: tuple[str, ...] = ()
+    server_env: dict[str, str] = field(default_factory=dict)
 
 
 PRESETS: tuple[Preset, ...] = (
     Preset(name="software", env={"LIBGL_ALWAYS_SOFTWARE": "1"}),
     Preset(
         name="virgl",
-        env={"GALLIUM_DRIVER": "virpipe"},
-        requires=("virgl_test_server_android",),
-        server="virgl_test_server_android",
-    ),
-    Preset(
-        name="zink",
-        env={
-            "GALLIUM_DRIVER": "zink",
+        # Confirmed via LinuxDroidMaster/Termux-Desktops' own native-Termux
+        # glmark2 results: a bare virgl_test_server_android server scored
+        # "Error" on every single run (5/5) — this preset used to be exactly
+        # that combination. The one that actually works natively (92-93,
+        # their "VIRGL ZINK" row) uses a *different* server binary
+        # (virgl_test_server, from the virglrenderer-mesa-zink package, not
+        # virgl_test_server_android) started with zink-flavored server env —
+        # the client command is unchanged (GALLIUM_DRIVER=virpipe). Also
+        # adds MESA_GL_VERSION_OVERRIDE=4.0 to the client env, missing
+        # before.
+        env={"GALLIUM_DRIVER": "virpipe", "MESA_GL_VERSION_OVERRIDE": "4.0"},
+        requires=("virgl_test_server",),
+        server="virgl_test_server",
+        server_args=("--use-egl-surfaceless", "--use-gles"),
+        server_env={
+            "MESA_NO_ERROR": "1",
             "MESA_GL_VERSION_OVERRIDE": "4.3COMPAT",
             "MESA_GLES_VERSION_OVERRIDE": "3.2",
+            "GALLIUM_DRIVER": "zink",
             "ZINK_DESCRIPTORS": "lazy",
         },
+    ),
+    Preset(
+        # Simplified to the doc's own direct-zink client command
+        # (GALLIUM_DRIVER=zink MESA_GL_VERSION_OVERRIDE=4.0, no server at
+        # all — it scored highest of every native option, 121-124). The
+        # previous env here (MESA_GL_VERSION_OVERRIDE=4.3COMPAT,
+        # MESA_GLES_VERSION_OVERRIDE=3.2, ZINK_DESCRIPTORS=lazy) was
+        # actually the *server*-side flavor of zink from the "virgl" combo
+        # above, mistakenly applied as this preset's *client* env instead.
+        name="zink",
+        env={"GALLIUM_DRIVER": "zink", "MESA_GL_VERSION_OVERRIDE": "4.0"},
         adreno_only=True,
     ),
     Preset(
         name="turnip",
-        env={"MESA_LOADER_DRIVER_OVERRIDE": "zink", "TU_DEBUG": "noconform"},
+        # TU_DEBUG=noconform dropped: LinuxDroidMaster/Termux-Desktops'
+        # own docs list it only for the *proot* Turnip invocation; the
+        # separate native-Termux Turnip section uses just
+        # MESA_LOADER_DRIVER_OVERRIDE=zink with no TU_DEBUG at all. Needs
+        # the mesa-vulkan-icd-freedreno-dri3 package (a Vulkan ICD, not a
+        # standalone binary shutil.which can detect — no `requires` check
+        # here; a missing ICD will surface as a real glmark2 failure in
+        # the log instead).
+        env={"MESA_LOADER_DRIVER_OVERRIDE": "zink"},
         adreno_only=True,
     ),
 )
@@ -199,11 +261,14 @@ def candidates(vendor: str | None = None) -> list[Preset]:
 _SCORE_RE = re.compile(r"glmark2 Score:\s*(\d+)")
 
 # Termux package that provides each binary a preset depends on — needed
-# because the binary name and the pkg name aren't always the same
-# (virgl_test_server_android ships in the virglrenderer-android package).
+# because the binary name and the pkg name aren't always the same.
+# virgl_test_server_android ships in virglrenderer-android;
+# virgl_test_server (a *different* binary — the zink-capable build) ships
+# in virglrenderer-mesa-zink, confirmed via termux-user-repository/tur.
 _BINARY_PACKAGES: dict[str, str] = {
     "glmark2": "glmark2",
     "virgl_test_server_android": "virglrenderer-android",
+    "virgl_test_server": "virglrenderer-mesa-zink",
 }
 
 
@@ -234,9 +299,14 @@ def _start_renderer(preset: Preset, log: Log | None, _attempted: set[str] | None
         return True
     if not _ensure_binary(preset.server, log, _attempted):
         return False
+    env = dict(os.environ)
+    env.update(preset.server_env)
     try:
         subprocess.Popen(
-            [preset.server], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            [preset.server, *preset.server_args],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     except OSError as exc:
         if log:

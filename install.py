@@ -26,10 +26,19 @@ MIN_FREE_GB = 4.0  # the x11-repo/xfce4 package set plus caches, comfortably
 # failure: apt fails an ENTIRE `pkg install` line if even one name in it is
 # unavailable, which would otherwise take down unrelated packages (xfce4,
 # dbus, ...) alongside the bad one. Mirrors XLabs' install_termux_packages().
-# virglrenderer-android (not bare "virglrenderer") is the package that
-# actually provides virgl_test_server_android, which app/native/gpu.py's
-# "virgl" preset requires. "pulseaudio" (not Debian-style "pulseaudio-utils"
-# — Termux doesn't split them) provides both the daemon and pactl, which
+# virglrenderer-android provides virgl_test_server_android; the "virgl"
+# preset in app/native/gpu.py actually runs a *different* binary,
+# virgl_test_server, from virglrenderer-mesa-zink (confirmed via
+# termux-user-repository/tur — bare virgl_test_server_android was found
+# to consistently fail on native Termux, per LinuxDroidMaster/
+# Termux-Desktops' own tested glmark2 results, 2026-08-26). mesa-zink and
+# vulkan-loader-android are the other two packages that same doc lists as
+# needed together for native-Termux hardware acceleration.
+# mesa-vulkan-icd-freedreno-dri3 is the Turnip preset's own dependency (a
+# Vulkan ICD, harmless to install on non-Adreno devices since gpu.py
+# already gates Turnip's *use* to adreno_only).
+# "pulseaudio" (not Debian-style "pulseaudio-utils" — Termux doesn't
+# split them) provides both the daemon and pactl, which
 # app/native/audio.py needs.
 #
 # "theme" and "multimedia" (2026-08-26, re-researched from dextop's actual
@@ -47,7 +56,13 @@ MIN_FREE_GB = 4.0  # the x11-repo/xfce4 package set plus caches, comfortably
 # is the safe, bounded piece of this.
 PACKAGE_GROUPS = {
     "Termux:X11": ["termux-x11-nightly"],
-    "graphics": ["virglrenderer-android"],
+    "graphics": [
+        "virglrenderer-android",
+        "virglrenderer-mesa-zink",
+        "mesa-zink",
+        "vulkan-loader-android",
+        "mesa-vulkan-icd-freedreno-dri3",
+    ],
     "audio/dbus": ["pulseaudio", "dbus"],
     "desktop": ["xfce4", "xfce4-terminal"],
     "theme": ["papirus-icon-theme", "adwaita-icon-theme"],
