@@ -91,6 +91,13 @@ class Lifecycle:
         if not x11.wait_for_socket():
             raise SessionError("X11 socket never came up")
 
+        # The server process alone renders nothing visible — the
+        # Termux:X11 *Android app* is the actual window Android shows
+        # the render surface in. x11.start() only ever launched the
+        # server; this was missing entirely.
+        log(f"$ am start -n {x11.APP_ACTIVITY}")
+        x11.launch_app(log)
+
         script = session_mod.build_script(preset, pulse_ok)
         script_path = self._write_script(script)
         log(f"$ bash {script_path}")

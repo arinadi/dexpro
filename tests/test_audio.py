@@ -162,11 +162,53 @@ def test_stop_server_kills_and_logs_when_running() -> None:
         calls.append(cmd)
         return sp.CompletedProcess(cmd, 0)
 
-    with mock.patch.object(audio, "is_running", return_value=True):
+    # True once (the initial check), then False (it actually died, both
+    # for the poll loop's own check and the final not-yet-dead check) —
+    # exercises the real shutdown path without waiting out the real 5s
+    # poll timeout below.
+    with mock.patch.object(audio, "is_running", side_effect=[True, False, False]):
         with mock.patch.object(audio.subprocess, "run", side_effect=fake_run):
             audio.stop_server(log=messages.append)
     check(calls == [["pulseaudio", "--kill"]], f"got {calls!r}")
     check(any("pulseaudio --kill" in m for m in messages), f"got {messages!r}")
+
+
+def test_stop_server_waits_for_the_daemon_to_actually_die() -> None:
+    # Real bug found live: audio worked, then vanished after a Stop +
+    # Start cycle. `pulseaudio --kill` doesn't block until the daemon
+    # has actually exited — stop_server() must poll is_running() rather
+    # than trusting the kill command returned, or the very next
+    # ensure_server() call can see the OLD, dying instance as "still
+    # running" and skip starting a fresh one.
+    from unittest import mock
+
+    with mock.patch.object(audio, "is_running", side_effect=[True, True, True, False, False]):
+        with mock.patch.object(audio.subprocess, "run", return_value=None):
+            with mock.patch.object(audio.time, "sleep"):
+                audio.stop_server(log=lambda _msg: None)
+    # No assertion needed beyond "this returns" — a version that just
+    # trusted `pulseaudio --kill`'s return would never re-check
+    # is_running() at all, so the mocked side_effect sequence above
+    # (three Trues before the final False) would never be exhausted;
+    # StopIteration would propagate here if that regressed.
+
+
+def test_stop_server_logs_a_warning_if_it_never_actually_stops() -> None:
+    from unittest import mock
+
+    messages: list[str] = []
+    # First monotonic() call sets the deadline; the second (the while
+    # check) is already past it — exits the poll loop immediately
+    # instead of really waiting out the full 5s.
+    with mock.patch.object(audio, "is_running", return_value=True):
+        with mock.patch.object(audio.subprocess, "run", return_value=None):
+            with mock.patch.object(audio.time, "sleep"):
+                with mock.patch.object(audio.time, "monotonic", side_effect=[0, 100]):
+                    audio.stop_server(log=messages.append)
+    check(
+        any("did not stop" in m for m in messages),
+        f"expected a warning when the daemon never actually stops, got {messages!r}",
+    )
 
 
 def test_pulse_env_pins_xdg_runtime_dir_to_the_shared_constant() -> None:
@@ -237,6 +279,8 @@ TESTS = [
     test_ensure_server_skips_preload_when_library_missing,
     test_stop_server_is_a_noop_when_nothing_is_running,
     test_stop_server_kills_and_logs_when_running,
+    test_stop_server_waits_for_the_daemon_to_actually_die,
+    test_stop_server_logs_a_warning_if_it_never_actually_stops,
     test_pulse_env_pins_xdg_runtime_dir_to_the_shared_constant,
     test_is_enabled_defaults_to_off,
     test_set_enabled_round_trips,

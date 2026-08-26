@@ -155,7 +155,7 @@ def check_termux_x11_installed() -> Issue:
 # or Samsung Secure Folder (a bare query fails with "Shell does not
 # have permission to access user <n>"), and stdin has to be off the
 # terminal or it trips over the character device.
-X11_APP_PACKAGE = "com.termux.x11"
+X11_APP_PACKAGE = x11.APP_PACKAGE  # single source of truth is native/x11.py
 X11_APK_URL = "https://github.com/termux/termux-x11/releases/tag/nightly"
 
 

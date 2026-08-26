@@ -81,6 +81,7 @@ import os
 import shutil
 import struct
 import subprocess
+import time
 import wave
 from collections.abc import Callable
 
@@ -195,7 +196,21 @@ def stop_server(log: Log | None = None) -> None:
     supported clean shutdown (unloads its own modules), rather than
     leaving the daemon — or a stale socket after it dies on its own —
     around into the next session. A no-op, not an error, when nothing
-    is running."""
+    is running.
+
+    2026-08-26: a real device report — audio worked, then vanished again
+    after a Stop + Start cycle — traced to a race this function itself
+    caused: `pulseaudio --kill` sends the shutdown request but doesn't
+    block until the daemon has actually exited. Lifecycle.start() always
+    runs stop() first, and its own ensure_server() checks is_running()
+    before deciding whether to start a fresh daemon — if that check ran
+    while the *old* instance was still mid-shutdown, it could read as
+    "already running" and skip starting a new one, leaving nothing once
+    the old one actually finished dying moments later. Now blocks (up to
+    5s) until is_running() genuinely reports gone, matching the same
+    "verify, don't just assume" principle lifecycle.py's own `_kill()`
+    already uses for the session process.
+    """
     if not is_running():
         return
     if log:
@@ -204,6 +219,11 @@ def stop_server(log: Log | None = None) -> None:
         subprocess.run(["pulseaudio", "--kill"], capture_output=True, timeout=10, env=_pulse_env())
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and is_running():
+        time.sleep(0.2)
+    if is_running() and log:
+        log("warning: pulseaudio did not stop within 5s")
 
 
 # ── Test tone (ported from XLabs' audio.py test()) ────────────

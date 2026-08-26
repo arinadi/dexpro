@@ -63,6 +63,53 @@ def test_start_delegates_install_to_native_packages() -> None:
     check(calls == [("termux-x11", "termux-x11-nightly")], f"got {calls!r}")
 
 
+def test_launch_app_fails_gracefully_when_am_missing() -> None:
+    # No `am` on this Windows dev machine — must fail gracefully to
+    # False and log why, never raise.
+    messages: list[str] = []
+    result = x11.launch_app(log=messages.append)
+    check(result is False, "must report failure gracefully when am is unavailable")
+    check(any("Termux:X11 app" in m for m in messages), f"got {messages!r}")
+
+
+def test_launch_app_starts_the_correct_activity() -> None:
+    # Regression test for a real reported gap: start()/stop() only ever
+    # touched the termux-x11 *server binary*, never the Termux:X11
+    # *Android app* that actually shows the rendered surface — matching
+    # XLabs' own start_x11(), which `am start`s the app right after the
+    # server comes up.
+    import subprocess
+    from unittest import mock
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    with mock.patch.object(x11.subprocess, "run", side_effect=fake_run):
+        result = x11.launch_app()
+    check(result is True, "must report success when the mocked am start succeeds")
+    check(calls == [["am", "start", "-n", x11.APP_ACTIVITY]], f"got {calls!r}")
+    check(x11.APP_ACTIVITY == "com.termux.x11/com.termux.x11.MainActivity", x11.APP_ACTIVITY)
+
+
+def test_stop_force_stops_the_app_as_well_as_the_server() -> None:
+    import subprocess
+    from unittest import mock
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    with mock.patch.object(x11.subprocess, "run", side_effect=fake_run):
+        x11.stop()
+    check(["pkill", "-f", "termux-x11"] in calls, f"got {calls!r}")
+    check(["am", "force-stop", x11.APP_PACKAGE] in calls, f"got {calls!r}")
+
+
 def test_draw_path_flags_maps_each_option() -> None:
     check(x11.draw_path_flags("normal") == [], "normal should add no flags")
     check(x11.draw_path_flags(None) == [], "unset should default to normal (no flags)")
@@ -81,6 +128,9 @@ TESTS = [
     test_wait_for_socket_times_out_when_absent,
     test_start_fails_gracefully_when_binary_missing,
     test_start_delegates_install_to_native_packages,
+    test_launch_app_fails_gracefully_when_am_missing,
+    test_launch_app_starts_the_correct_activity,
+    test_stop_force_stops_the_app_as_well_as_the_server,
     test_draw_path_flags_maps_each_option,
     test_draw_path_flags_unknown_value_is_safe,
 ]
