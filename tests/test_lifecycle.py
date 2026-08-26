@@ -181,6 +181,35 @@ def test_start_and_stop_use_the_passed_in_log_not_only_the_default() -> None:
     check(len(messages) > 0, "stop() must log through the passed-in logger, not just self.log")
 
 
+def test_sweep_survivors_is_a_noop_when_nothing_matches() -> None:
+    # No real pgrep on this Windows dev machine — pgrep() reports False,
+    # so this must do nothing (and not raise).
+    lc = Lifecycle(log=lambda _msg: None)
+    lc._sweep_survivors(lambda _msg: None)
+
+
+def test_sweep_survivors_kills_and_logs_when_something_matches() -> None:
+    # Regression test for XLabs' own stop_desktop() final catch-all step
+    # ("anything that outlived its parent") — dexpro's stop() had no
+    # equivalent before.
+    from unittest import mock
+
+    from app.native import lifecycle as lifecycle_mod
+
+    messages: list[str] = []
+    calls = []
+    lc = Lifecycle(log=lambda _msg: None)
+    with mock.patch.object(lifecycle_mod.proc_util, "pgrep", return_value=True):
+        with mock.patch.object(
+            lifecycle_mod.proc_util,
+            "kill_pattern",
+            side_effect=lambda p, log=None, wait=3.0: calls.append(p) or True,
+        ):
+            lc._sweep_survivors(messages.append)
+    check(calls == [lifecycle_mod._SURVIVOR_PATTERN], f"got {calls!r}")
+    check(any("sweeping survivors" in m for m in messages), f"got {messages!r}")
+
+
 def test_wait_for_session_reports_false_when_process_never_starts() -> None:
     # No real bash/xfce4-session process was ever assigned — is_running()
     # is always False, so this must give up and report failure rather
@@ -207,6 +236,8 @@ TESTS = [
     test_ensure_unified_home_backup_only_runs_once,
     test_link_storage_skips_unified_home_when_backup_would_fail,
     test_start_and_stop_use_the_passed_in_log_not_only_the_default,
+    test_sweep_survivors_is_a_noop_when_nothing_matches,
+    test_sweep_survivors_kills_and_logs_when_something_matches,
     test_wait_for_session_reports_false_when_process_never_starts,
 ]
 

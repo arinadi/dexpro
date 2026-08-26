@@ -45,6 +45,7 @@ from test_gpu import TESTS as GPU_TESTS
 from test_lifecycle import TESTS as LIFECYCLE_TESTS
 from test_main_screen import TESTS as MAIN_SCREEN_TESTS
 from test_native_packages import TESTS as NATIVE_PACKAGES_TESTS
+from test_proc import TESTS as PROC_TESTS
 from test_session import TESTS as SESSION_TESTS
 from test_settings_screen import TESTS as SETTINGS_SCREEN_TESTS
 from test_store_screen import TESTS as STORE_SCREEN_TESTS
@@ -58,6 +59,7 @@ from test_x11 import TESTS as X11_TESTS
 ALL_TESTS = [
     *CONFIG_TESTS,
     *WAKELOCK_TESTS,
+    *PROC_TESTS,
     *AUDIO_TESTS,
     *GPU_TESTS,
     *X11_TESTS,

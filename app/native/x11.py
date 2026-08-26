@@ -12,6 +12,12 @@ render surface in — ``am start``ing it is what XLabs' own code does
 right after the server comes up, and stop_desktop() explicitly
 ``am force-stop``s it too, not just killing the server process. Added
 launch_app()/APP_PACKAGE and wired both into Lifecycle.
+
+2026-08-26 (later same day): "polite kill doesn't work" — stop()'s own
+`pkill -f termux-x11` was a single, unverified SIGTERM with no check
+that termux-x11 actually died and no escalation if it didn't, unlike
+XLabs' own stop_desktop() (TERM, wait, confirm via pgrep, SIGKILL if
+still alive for this exact target). Now uses native.proc.kill_pattern().
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from collections.abc import Callable
 
 from .. import const
 from . import packages as native_packages
+from . import proc
 
 Log = Callable[[str], None]
 
@@ -103,17 +110,9 @@ def wait_for_socket(timeout: float = 15.0, interval: float = 0.25) -> bool:
 
 
 def stop(log: Log | None = None) -> None:
-    _pkill("termux-x11", log)
+    proc.kill_pattern("termux-x11", log)
     try:
         subprocess.run(["am", "force-stop", APP_PACKAGE], capture_output=True, timeout=10)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         if log:
             log("warning: could not force-stop the Termux:X11 app")
-
-
-def _pkill(name: str, log: Log | None) -> None:
-    try:
-        subprocess.run(["pkill", "-f", name], capture_output=True, timeout=10)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        if log:
-            log(f"warning: could not signal {name}")

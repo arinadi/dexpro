@@ -34,6 +34,15 @@ just fired the script and returned. XLabs' README explicitly documents
 Android 12+'s phantom process killer as a known cause of a background
 process (PulseAudio, or the session itself) dying on its own — see
 _wait_for_session()'s failure message.
+
+2026-08-26 (later same day): "polite kill doesn't work" — _kill()'s own
+blanket `pkill -f pattern` sweep (for anything not directly tracked by
+the Popen handle) was a single, unverified SIGTERM with no escalation,
+same as x11.py's own kill call before it was fixed the same way. Now
+uses native.proc.kill_pattern() (TERM, wait, confirm via pgrep, SIGKILL
+if still alive). Also added a final `_sweep_survivors()` step at the end
+of stop(), matching XLabs' stop_desktop()'s own last "anything that
+outlived its parent" catch-all.
 """
 
 from __future__ import annotations
@@ -49,9 +58,20 @@ from collections.abc import Callable
 from .. import backup, config, const
 from ..android import storage as android_storage
 from . import audio, gpu, wakelock, x11
+from . import proc as proc_util
 from . import session as session_mod
 
 _SESSION_STARTUP_TIMEOUT = 20.0
+
+# A final catch-all sweep on Stop, matching XLabs' stop_desktop() step 4
+# ("anything that outlived its parent") — xfwm4/xfdesktop are xfce4-
+# session's own children and could in principle survive it; pulseaudio/
+# virgl_test_server/termux-x11 are already handled by their own modules'
+# stop paths above, but a belt-and-suspenders final check costs one
+# cheap pgrep when there's nothing left to catch.
+_SURVIVOR_PATTERN = (
+    "xfce4-session|startxfce4|xfwm4|xfdesktop|termux-x11|virgl_test_server|pulseaudio"
+)
 
 STORAGE_LINK_KEY = "STORAGE_LINK"
 # Re-researched from dextop 2026-08-26: its own setup always backs up the
@@ -180,13 +200,20 @@ class Lifecycle:
 
     def stop(self, log: Log | None = None) -> None:
         log = log or self.log
-        self._kill(self._session_proc, "xfce4-session")
+        self._kill(self._session_proc, "xfce4-session", log)
         self._session_proc = None
         x11.stop(log)
         self._x11_proc = None
         audio.stop_server(log)
         self._clean_runtime_dir(log)
         wakelock.release(log)
+        self._sweep_survivors(log)
+
+    def _sweep_survivors(self, log: Log) -> None:
+        if not proc_util.pgrep(_SURVIVOR_PATTERN):
+            return
+        log("sweeping survivors...")
+        proc_util.kill_pattern(_SURVIVOR_PATTERN, log, wait=0.5)
 
     def _clean_runtime_dir(self, log: Log) -> None:
         # Matches XLabs' own stop_desktop() "cleaning sockets" step — a
@@ -209,14 +236,19 @@ class Lifecycle:
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
         return path
 
-    def _kill(self, proc: subprocess.Popen | None, pattern: str) -> None:
+    def _kill(self, proc: subprocess.Popen | None, pattern: str, log: Log | None = None) -> None:
         if proc is not None and proc.poll() is None:
             proc.terminate()
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
-        try:
-            subprocess.run(["pkill", "-f", pattern], capture_output=True, timeout=10)
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+        # native.proc.kill_pattern(), not a bare pkill: catches anything
+        # not directly tracked by the Popen handle above (session.py's
+        # script `exec`s into xfce4-session, so the tracked handle IS the
+        # real process — but this sweep is the safety net if that ever
+        # isn't true), verifies it actually died, and escalates to
+        # SIGKILL if a plain TERM didn't work — "polite kill doesn't
+        # work" was a real reported issue with this exact kind of
+        # unverified pkill elsewhere in this codebase.
+        proc_util.kill_pattern(pattern, log)

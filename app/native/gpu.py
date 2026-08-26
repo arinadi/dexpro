@@ -103,7 +103,7 @@ from dataclasses import dataclass, field
 
 from .. import config
 from . import packages as native_packages
-from . import x11
+from . import proc, x11
 
 Log = Callable[[str], None]
 
@@ -278,11 +278,12 @@ def _ensure_binary(binary: str, log: Log | None, _attempted: set[str] | None = N
     )
 
 
-def _stop_renderer() -> None:
-    try:
-        subprocess.run(["pkill", "-f", "virgl_test_server"], capture_output=True, timeout=10)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+def _stop_renderer(log: Log | None = None) -> None:
+    # native.proc.kill_pattern(), not a bare pkill: verifies the renderer
+    # actually died and escalates to SIGKILL if a plain TERM didn't work
+    # — "polite kill doesn't work" was a real reported issue elsewhere in
+    # this codebase's own kill call sites, fixed the same way everywhere.
+    proc.kill_pattern("virgl_test_server", log)
 
 
 def _start_renderer(preset: Preset, log: Log | None, _attempted: set[str] | None = None) -> bool:
@@ -294,7 +295,7 @@ def _start_renderer(preset: Preset, log: Log | None, _attempted: set[str] | None
     binary exists (candidates()/_ensure_binary) is not the same as it
     actually being *running*.
     """
-    _stop_renderer()
+    _stop_renderer(log)
     if preset.server is None:
         return True
     if not _ensure_binary(preset.server, log, _attempted):
@@ -396,7 +397,7 @@ def run_glmark2(
         # running in the background after Bench finishes, and could
         # confuse the *next* preset's own renderer (or a later manual
         # Bench run) — always tear it down, success or failure.
-        _stop_renderer()
+        _stop_renderer(log)
 
 
 def bench(log: Log | None = None) -> tuple[Preset, int] | None:

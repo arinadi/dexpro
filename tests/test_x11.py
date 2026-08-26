@@ -98,16 +98,20 @@ def test_stop_force_stops_the_app_as_well_as_the_server() -> None:
     import subprocess
     from unittest import mock
 
-    calls = []
+    kill_calls = []
+    am_calls = []
 
     def fake_run(cmd, **kwargs):
-        calls.append(cmd)
+        am_calls.append(cmd)
         return subprocess.CompletedProcess(cmd, 0)
 
-    with mock.patch.object(x11.subprocess, "run", side_effect=fake_run):
-        x11.stop()
-    check(["pkill", "-f", "termux-x11"] in calls, f"got {calls!r}")
-    check(["am", "force-stop", x11.APP_PACKAGE] in calls, f"got {calls!r}")
+    with mock.patch.object(
+        x11.proc, "kill_pattern", side_effect=lambda p, log=None: kill_calls.append(p) or True
+    ):
+        with mock.patch.object(x11.subprocess, "run", side_effect=fake_run):
+            x11.stop()
+    check(kill_calls == ["termux-x11"], f"got {kill_calls!r}")
+    check(["am", "force-stop", x11.APP_PACKAGE] in am_calls, f"got {am_calls!r}")
 
 
 def test_draw_path_flags_maps_each_option() -> None:
