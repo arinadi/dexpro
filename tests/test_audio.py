@@ -79,6 +79,41 @@ def test_set_enabled_round_trips() -> None:
     check(audio.is_enabled() is False, "set_enabled(False) must persist and clear the key")
 
 
+def test_warn_if_sink_not_warmed_up_logs_when_no_sink_yet() -> None:
+    # Real device report: audio works, but right after Start Desktop the
+    # volume control loads slowly and playback is silent until it does —
+    # is_running() (daemon alive) isn't the same as a sink actually being
+    # ready. This must inform, not block.
+    from unittest import mock
+
+    messages: list[str] = []
+    with mock.patch.object(audio, "sinks", return_value=[]):
+        audio._warn_if_sink_not_warmed_up(messages.append)
+    check(any("warm up" in m for m in messages), f"got {messages!r}")
+
+
+def test_warn_if_sink_not_warmed_up_is_silent_once_a_sink_exists() -> None:
+    from unittest import mock
+
+    messages: list[str] = []
+    with mock.patch.object(audio, "sinks", return_value=["Sink #0"]):
+        audio._warn_if_sink_not_warmed_up(messages.append)
+    check(messages == [], f"must not warn once a sink exists, got {messages!r}")
+
+
+def test_ensure_server_checks_sink_warmup_when_already_running() -> None:
+    from unittest import mock
+
+    calls = []
+    with mock.patch.object(audio, "is_running", return_value=True):
+        with mock.patch.object(
+            audio, "_warn_if_sink_not_warmed_up", side_effect=lambda log: calls.append(log)
+        ):
+            result = audio.ensure_server(log=lambda _msg: None)
+    check(result is True, "must still report running")
+    check(len(calls) == 1, "must check sink warmup on the already-running path too")
+
+
 def test_is_samsung_returns_false_without_getprop() -> None:
     # No getprop on this Windows dev machine — must fail gracefully to
     # False, not raise.
@@ -274,6 +309,9 @@ TESTS = [
     test_is_running_returns_a_bool,
     test_ensure_server_never_raises,
     test_ensure_server_delegates_install_to_native_packages,
+    test_warn_if_sink_not_warmed_up_logs_when_no_sink_yet,
+    test_warn_if_sink_not_warmed_up_is_silent_once_a_sink_exists,
+    test_ensure_server_checks_sink_warmup_when_already_running,
     test_is_samsung_returns_false_without_getprop,
     test_ensure_server_preloads_libskcodec_on_samsung,
     test_ensure_server_skips_preload_when_library_missing,

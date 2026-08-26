@@ -72,6 +72,20 @@ process-killer. Both explanations may be in play; this adds the Samsung
 preload (gated to Samsung devices, and only if the library file actually
 exists, so it cannot affect any other device) as a second, independent
 possible fix alongside the Stop/Start robustness work already done.
+
+2026-08-26 (later still): confirmed working — user reports audio plays
+in XFCE now. Follow-up report: right after Start Desktop, XFCE's volume
+control takes a long time to load, and playback (YouTube) only starts
+working once it finishes; confirmed this is a one-time startup delay,
+not a persistent problem (still slow well after Start would mean
+something else). Consistent with PulseAudio's daemon process reporting
+itself alive (is_running() true) well before its actual Android-audio-
+HAL-backed sink has finished warming up — the volume control and
+playback are both just waiting on that same readiness. Not something to
+block Start Desktop on (the delay resolves on its own, and blocking
+would just move the wait rather than remove it) — added
+_warn_if_sink_not_warmed_up() so the log explains what's happening
+instead of looking finished while audio quietly isn't ready yet.
 """
 
 from __future__ import annotations
@@ -149,8 +163,29 @@ def is_running() -> bool:
         return False
 
 
+def _warn_if_sink_not_warmed_up(log: Log | None) -> None:
+    """The daemon process being alive isn't the same as its audio
+    backend actually being ready. Confirmed live on a Samsung device:
+    right after Start Desktop, is_running() already reports true, but no
+    sink exists yet — XFCE's own volume control (and playback) silently
+    wait on that same readiness, which can take several seconds to warm
+    up. Not something this function blocks on: Start Desktop shouldn't
+    hang waiting for it, and it resolves on its own — this only makes
+    the wait visible instead of the log looking done while audio quietly
+    isn't yet.
+    """
+    if log and not sinks():
+        log(
+            "pulseaudio is running, but no audio sink is available yet — "
+            "this can take several seconds to warm up (seen on at least "
+            "one Samsung device); the volume control and audio playback "
+            "should start working once it does, no action needed."
+        )
+
+
 def ensure_server(log: Log | None = None) -> bool:
     if is_running():
+        _warn_if_sink_not_warmed_up(log)
         return True
     if not native_packages.ensure_binary("pulseaudio", "pulseaudio", log):
         if log:
@@ -188,7 +223,10 @@ def ensure_server(log: Log | None = None) -> bool:
         # the log, which doesn't include stderr — the actual reason
         # (e.g. a stale PID/lock file, no /dev/shm, ...) was invisible.
         log(f"warning: pulseaudio --start exited {result.returncode}: {result.stderr.strip()}")
-    return is_running()
+    started = is_running()
+    if started:
+        _warn_if_sink_not_warmed_up(log)
+    return started
 
 
 def stop_server(log: Log | None = None) -> None:
