@@ -79,6 +79,68 @@ def test_set_enabled_round_trips() -> None:
     check(audio.is_enabled() is False, "set_enabled(False) must persist and clear the key")
 
 
+def test_is_samsung_returns_false_without_getprop() -> None:
+    # No getprop on this Windows dev machine — must fail gracefully to
+    # False, not raise.
+    check(audio._is_samsung() is False, "expected False when getprop is unavailable")
+
+
+def test_ensure_server_preloads_libskcodec_on_samsung() -> None:
+    # Community-confirmed workaround (r/termux): Samsung devices can need
+    # LD_PRELOAD=/system/lib64/libskcodec.so before pulseaudio starts or
+    # the daemon fails to initialize — gated to Samsung + the file
+    # actually existing, so it can never affect any other device.
+    import subprocess
+    import unittest.mock as mock
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:1] == ["pulseaudio"]:
+            captured["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with mock.patch.object(audio, "is_running", return_value=False):
+        with mock.patch.object(audio, "_is_samsung", return_value=True):
+            with mock.patch.object(audio.os.path, "exists", return_value=True):
+                with mock.patch.object(
+                    audio.native_packages, "ensure_binary", return_value=True
+                ):
+                    with mock.patch.object(audio.os, "makedirs"):
+                        with mock.patch.object(audio.os, "chmod"):
+                            with mock.patch.object(audio.subprocess, "run", side_effect=fake_run):
+                                audio.ensure_server(log=lambda _msg: None)
+    check("env" in captured, "pulseaudio was never invoked")
+    check(
+        captured["env"].get("LD_PRELOAD") == audio._SAMSUNG_LD_PRELOAD,
+        f"expected LD_PRELOAD set, got {captured['env'].get('LD_PRELOAD')!r}",
+    )
+
+
+def test_ensure_server_skips_preload_when_library_missing() -> None:
+    import subprocess
+    import unittest.mock as mock
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:1] == ["pulseaudio"]:
+            captured["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with mock.patch.object(audio, "is_running", return_value=False):
+        with mock.patch.object(audio, "_is_samsung", return_value=True):
+            with mock.patch.object(audio.os.path, "exists", return_value=False):
+                with mock.patch.object(
+                    audio.native_packages, "ensure_binary", return_value=True
+                ):
+                    with mock.patch.object(audio.os, "makedirs"):
+                        with mock.patch.object(audio.os, "chmod"):
+                            with mock.patch.object(audio.subprocess, "run", side_effect=fake_run):
+                                audio.ensure_server(log=lambda _msg: None)
+    check("LD_PRELOAD" not in captured["env"], "must not set LD_PRELOAD when the file is absent")
+
+
 def test_stop_server_is_a_noop_when_nothing_is_running() -> None:
     # No real pulseaudio on this Windows dev machine — is_running() is
     # already False, so stop_server() must return without raising and
@@ -170,6 +232,9 @@ TESTS = [
     test_is_running_returns_a_bool,
     test_ensure_server_never_raises,
     test_ensure_server_delegates_install_to_native_packages,
+    test_is_samsung_returns_false_without_getprop,
+    test_ensure_server_preloads_libskcodec_on_samsung,
+    test_ensure_server_skips_preload_when_library_missing,
     test_stop_server_is_a_noop_when_nothing_is_running,
     test_stop_server_kills_and_logs_when_running,
     test_pulse_env_pins_xdg_runtime_dir_to_the_shared_constant,

@@ -54,12 +54,31 @@ native`) — nothing guaranteed the two ever agreed on where the socket
 actually is. Fixed by pinning every PulseAudio-facing call here (and the
 session script) to the single shared `const.XDG_RUNTIME_DIR` constant via
 `_pulse_env()`, so there's one address, not two independent guesses.
+
+2026-08-26 (later still): a device report — user confirmed Samsung —
+plus a community thread (r/termux, "cmonhaveago"'s comment specifically)
+surfaced two more real, useful facts: (1) Termux's own `pulseaudio`
+package has patched modules that deliver audio natively to Android's
+audio output when started plainly (`pulseaudio --start`) — the
+`module-native-protocol-tcp`/`PULSE_SERVER=127.0.0.1` trick many guides
+recommend is for the *proot-distro* case and actively breaks native
+audio, so this module deliberately does NOT add it (confirms the
+existing approach, no change needed); (2) Samsung devices specifically
+often need `LD_PRELOAD=/system/lib64/libskcodec.so` set before
+`pulseaudio --start` or the daemon can fail to initialize properly —
+which would produce exactly the same "socket file present, no process
+alive" symptom this session already diagnosed as the Android phantom-
+process-killer. Both explanations may be in play; this adds the Samsung
+preload (gated to Samsung devices, and only if the library file actually
+exists, so it cannot affect any other device) as a second, independent
+possible fix alongside the Stop/Start robustness work already done.
 """
 
 from __future__ import annotations
 
 import math
 import os
+import shutil
 import struct
 import subprocess
 import wave
@@ -72,6 +91,12 @@ Log = Callable[[str], None]
 
 ENABLED_KEY = "AUDIO_ENABLED"
 TEST_TONE_NAME = "dexpro-test-tone.wav"
+
+# Confirmed via community reports (r/termux) for this exact Termux +
+# PulseAudio + XFCE combination, not guessed — Samsung's own audio codec
+# library needs to be preloaded before pulseaudio starts, or the daemon
+# can fail to initialize.
+_SAMSUNG_LD_PRELOAD = "/system/lib64/libskcodec.so"
 
 
 def is_enabled() -> bool:
@@ -94,6 +119,18 @@ def _pulse_env() -> dict[str, str]:
     # and the XFCE session script's PULSE_SERVER all agree on the same
     # socket location instead of each independently guessing.
     return dict(os.environ, PULSE_AUTOSPAWN="0", XDG_RUNTIME_DIR=const.XDG_RUNTIME_DIR)
+
+
+def _is_samsung() -> bool:
+    if shutil.which("getprop") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["getprop", "ro.product.manufacturer"], capture_output=True, timeout=5, text=True
+        )
+    except subprocess.TimeoutExpired:
+        return False
+    return "samsung" in result.stdout.strip().lower()
 
 
 def is_running() -> bool:
@@ -124,6 +161,13 @@ def ensure_server(log: Log | None = None) -> bool:
     # having done it already.
     os.makedirs(const.XDG_RUNTIME_DIR, exist_ok=True)
     os.chmod(const.XDG_RUNTIME_DIR, 0o700)
+
+    env = _pulse_env()
+    if _is_samsung() and os.path.exists(_SAMSUNG_LD_PRELOAD):
+        if log:
+            log(f"Samsung device — preloading {_SAMSUNG_LD_PRELOAD}")
+        env["LD_PRELOAD"] = _SAMSUNG_LD_PRELOAD
+
     if log:
         log("$ pulseaudio --start --exit-idle-time=-1")
     try:
@@ -132,7 +176,7 @@ def ensure_server(log: Log | None = None) -> bool:
             capture_output=True,
             timeout=15,
             text=True,
-            env=_pulse_env(),
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         if log:
